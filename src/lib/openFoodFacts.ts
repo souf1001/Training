@@ -30,8 +30,8 @@ export async function searchOpenFoodFacts(query: string): Promise<OffProduct[]> 
     page_size: '15',
     fields: 'product_name,product_name_de,brands,nutriments,serving_quantity',
   })
-  const res = await fetch(`https://de.openfoodfacts.org/cgi/search.pl?${params}`)
-  if (!res.ok) throw new Error('Open Food Facts ist gerade nicht erreichbar.')
+  const res = await fetch(`https://de.openfoodfacts.org/cgi/search.pl?${params}`, { signal: AbortSignal.timeout(15_000) }).catch(() => null)
+  if (!res?.ok) throw new Error('Open Food Facts ist gerade nicht erreichbar. Bist du online?')
   const data = (await res.json()) as OffResponse
 
   return (data.products ?? [])

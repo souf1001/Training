@@ -36,7 +36,7 @@ export function CoachCard() {
           if (question.trim()) ask()
         }}
       >
-        <input className="input" placeholder="z. B. Was esse ich vor dem Training?" value={question} onChange={(e) => setQuestion(e.target.value)} />
+        <input className="input" aria-label="Frage an den KI-Coach" placeholder="z. B. Was esse ich vor dem Training?" value={question} onChange={(e) => setQuestion(e.target.value)} />
         <button className="icon-btn accent" style={{ width: 50, height: 50 }} disabled={busy || !question.trim()} aria-label="Fragen">
           {busy ? <Spinner /> : <Send size={20} />}
         </button>

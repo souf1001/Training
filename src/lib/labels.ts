@@ -37,21 +37,6 @@ export const HOME_EQUIPMENT: { id: Equipment; label: string; text: string }[] = 
   { id: 'towel', label: 'Handtuch', text: 'Zum Rutschen oder Ziehen' },
 ]
 
-export const ALL_EQUIPMENT: Equipment[] = [
-  'dumbbells',
-  'kettlebell',
-  'bands',
-  'pullupbar',
-  'bench',
-  'chair',
-  'bed',
-  'backpack',
-  'towel',
-  'barbell',
-  'cable',
-  'machine',
-]
-
 export const EQUIPMENT_LABEL: Record<Equipment, string> = {
   dumbbells: 'Kurzhanteln',
   kettlebell: 'Kettlebell',

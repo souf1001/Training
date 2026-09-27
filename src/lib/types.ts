@@ -6,17 +6,17 @@ export type Sex = 'male' | 'female'
 export type Activity = 'sedentary' | 'light' | 'moderate' | 'high'
 
 export type Goal =
-  | 'lose' // nur abnehmen
-  | 'recomp' // abnehmen und Muskeln aufbauen
-  | 'build' // sauber aufbauen (lean bulk)
-  | 'bulk' // aufbauen / bulken
-  | 'fit' // fit & gesund bleiben
+  | 'lose' // lose fat ("Abnehmen")
+  | 'recomp' // lose fat and build muscle
+  | 'build' // build muscle with a small surplus (lean bulk)
+  | 'bulk' // build as much as possible
+  | 'fit' // keep weight, get fitter
 
 export type Experience = 'beginner' | 'intermediate' | 'advanced'
 
 export type Location = 'gym' | 'home'
 
-// Things someone might have at home. The gym has everything.
+// Equipment for home training, plus the gym machines (see availableEquipment in plan.ts).
 export type Equipment =
   | 'dumbbells'
   | 'kettlebell'
@@ -64,6 +64,12 @@ export interface Macros {
   fat: number
 }
 
+// what a week of the training plan contains (for the calorie calculation)
+export interface WeeklyLoad {
+  strengthSessions: number
+  cardioMinutes: number
+}
+
 export interface NutritionTargets extends Macros {
   bmr: number
   tdee: number
@@ -82,7 +88,8 @@ export type Pattern =
   | 'core'
   | 'biceps'
   | 'triceps'
-  | 'shoulders' // lateral / rear delts
+  | 'shoulders' // side delts (lateral raise)
+  | 'rearDelts' // rear delts and upper back posture (face pull, reverse fly)
   | 'calves'
 
 export interface Exercise {
@@ -97,7 +104,7 @@ export interface Exercise {
   compound: boolean
   // true = measured in seconds instead of reps (e.g. plank)
   timed?: boolean
-  // folder name in /public/exercises (two frames: 0.jpg and 1.jpg)
+  // folder in /public/exercises: 0.webp (start), 1.webp (end), thumb.webp
   image: string
   steps: string[]
   feel: string[] // where you should feel it
@@ -121,7 +128,7 @@ export interface PlannedExercise {
 export interface CardioSession {
   type: CardioType
   minutes: number
-  intensity: 'easy' | 'moderate' | 'intervals'
+  intensity: 'easy' | 'intervals'
   note: string
 }
 
@@ -178,6 +185,21 @@ export interface WeightEntry {
   id?: number
   date: string // YYYY-MM-DD
   kg: number
+}
+
+export type Theme = 'system' | 'light' | 'dark'
+
+export interface Settings {
+  theme?: Theme
+}
+
+// the logged-in user as the app works with it
+export interface Me {
+  email: string
+  createdAt: string
+  profile: Profile
+  plan: Plan
+  settings: Settings
 }
 
 export interface AiSettings {

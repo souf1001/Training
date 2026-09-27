@@ -11,7 +11,9 @@ export const COOKIE_NAME = 'forma_session'
 // does not block other requests. Stored as "s2:salt:hash".
 // Old "salt:hash" values (Node default settings) still work.
 
-const SCRYPT: ScryptOptions = { N: 2 ** 16, r: 8, p: 1, maxmem: 128 * 1024 * 1024 }
+// N=2^15, r=8, p=3 is one of the OWASP recommended settings and needs only 32 MB per hash,
+// so a small server doesn't run out of memory when several people log in at once.
+const SCRYPT: ScryptOptions = { N: 2 ** 15, r: 8, p: 3, maxmem: 64 * 1024 * 1024 }
 
 function scryptAsync(password: string, salt: string, options: ScryptOptions): Promise<Buffer> {
   return new Promise((resolve, reject) =>
@@ -88,14 +90,14 @@ function readCookie(req: Request, name: string): string | null {
 // Adds req.userId or answers with 401.
 export function requireUser(req: Request, res: Response, next: NextFunction) {
   const token = readCookie(req, COOKIE_NAME)
-  if (!token) return res.status(401).json({ error: 'Nicht eingeloggt' })
+  if (!token) return res.status(401).json({ error: 'Nicht eingeloggt.' })
 
   const row = db
     .prepare('SELECT user_id, expires_at FROM sessions WHERE token_hash = ?')
     .get(sha256(token)) as { user_id: number; expires_at: string } | undefined
 
   if (!row || new Date(row.expires_at) < new Date()) {
-    return res.status(401).json({ error: 'Sitzung abgelaufen' })
+    return res.status(401).json({ error: 'Sitzung abgelaufen. Bitte melde dich neu an.' })
   }
   req.userId = row.user_id
   next()

@@ -10,6 +10,7 @@ export interface AiProvider {
   baseUrl: string
   defaultModel: string
   keyUrl: string // where you get an API key
+  keyHint: string // how a key starts, shown as placeholder
   free: boolean // has a free tier
 }
 
@@ -21,6 +22,7 @@ export const aiProviders: AiProvider[] = [
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
     defaultModel: 'gemini-2.5-flash',
     keyUrl: 'https://aistudio.google.com/apikey',
+    keyHint: 'AIza…',
     free: true,
   },
   {
@@ -30,6 +32,7 @@ export const aiProviders: AiProvider[] = [
     baseUrl: 'https://api.groq.com/openai/v1',
     defaultModel: 'llama-3.3-70b-versatile',
     keyUrl: 'https://console.groq.com/keys',
+    keyHint: 'gsk_…',
     free: true,
   },
   {
@@ -39,6 +42,7 @@ export const aiProviders: AiProvider[] = [
     baseUrl: 'https://api.cerebras.ai/v1',
     defaultModel: 'llama-3.3-70b',
     keyUrl: 'https://cloud.cerebras.ai',
+    keyHint: 'csk-…',
     free: true,
   },
   {
@@ -48,6 +52,7 @@ export const aiProviders: AiProvider[] = [
     baseUrl: 'https://api.mistral.ai/v1',
     defaultModel: 'mistral-small-latest',
     keyUrl: 'https://console.mistral.ai/api-keys',
+    keyHint: 'API-Key',
     free: true,
   },
   {
@@ -57,6 +62,7 @@ export const aiProviders: AiProvider[] = [
     baseUrl: 'https://openrouter.ai/api/v1',
     defaultModel: 'openrouter/auto',
     keyUrl: 'https://openrouter.ai/keys',
+    keyHint: 'sk-or-…',
     free: true,
   },
   {
@@ -66,6 +72,7 @@ export const aiProviders: AiProvider[] = [
     baseUrl: 'https://api.openai.com/v1',
     defaultModel: 'gpt-5-mini',
     keyUrl: 'https://platform.openai.com/api-keys',
+    keyHint: 'sk-…',
     free: false,
   },
   {
@@ -75,6 +82,7 @@ export const aiProviders: AiProvider[] = [
     baseUrl: 'https://api.anthropic.com',
     defaultModel: 'claude-opus-5',
     keyUrl: 'https://console.anthropic.com/settings/keys',
+    keyHint: 'sk-ant-…',
     free: false,
   },
   {
@@ -84,6 +92,7 @@ export const aiProviders: AiProvider[] = [
     baseUrl: 'https://api.x.ai/v1',
     defaultModel: 'grok-3-mini',
     keyUrl: 'https://console.x.ai',
+    keyHint: 'xai-…',
     free: false,
   },
   {
@@ -93,6 +102,7 @@ export const aiProviders: AiProvider[] = [
     baseUrl: 'https://api.deepseek.com/v1',
     defaultModel: 'deepseek-chat',
     keyUrl: 'https://platform.deepseek.com/api_keys',
+    keyHint: 'sk-…',
     free: false,
   },
   {
@@ -102,6 +112,7 @@ export const aiProviders: AiProvider[] = [
     baseUrl: 'https://api.together.xyz/v1',
     defaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
     keyUrl: 'https://api.together.ai/settings/api-keys',
+    keyHint: 'API-Key',
     free: false,
   },
   {
@@ -111,6 +122,7 @@ export const aiProviders: AiProvider[] = [
     baseUrl: 'https://api.fireworks.ai/inference/v1',
     defaultModel: 'accounts/fireworks/models/llama-v3p3-70b-instruct',
     keyUrl: 'https://fireworks.ai/account/api-keys',
+    keyHint: 'fw_…',
     free: false,
   },
   {
@@ -120,6 +132,7 @@ export const aiProviders: AiProvider[] = [
     baseUrl: 'https://api.perplexity.ai',
     defaultModel: 'sonar',
     keyUrl: 'https://www.perplexity.ai/settings/api',
+    keyHint: 'pplx-…',
     free: false,
   },
   {
@@ -129,6 +142,7 @@ export const aiProviders: AiProvider[] = [
     baseUrl: 'https://api.cohere.ai/compatibility/v1',
     defaultModel: 'command-a-03-2025',
     keyUrl: 'https://dashboard.cohere.com/api-keys',
+    keyHint: 'API-Key',
     free: true,
   },
   {
@@ -138,6 +152,7 @@ export const aiProviders: AiProvider[] = [
     baseUrl: 'http://localhost:11434/v1',
     defaultModel: 'llama3.1',
     keyUrl: 'https://ollama.com',
+    keyHint: 'optional',
     free: true,
   },
 ]

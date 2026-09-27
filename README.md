@@ -8,12 +8,19 @@ Forma ist eine Web-App (PWA) für iPhone und Android. Man öffnet sie im Browser
 - **Automatischer Trainingsplan:** Der Split (Ganzkörper, Ober-/Unterkörper, Push/Pull/Beine) richtet sich nach deinen Tagen. Die Übungen passen zu Equipment und Erfahrung. Sätze, Wiederholungen, RIR („Wiederholungen in Reserve“), „bis zum Versagen“ und Pausen richten sich nach deinem Ziel.
 - **93 Übungen mit Animation**, Schritt-für-Schritt-Anleitung, „Das solltest du spüren“, „Das solltest du nicht spüren“, Tipps und häufigen Fehlern. Jede Übung lässt sich gegen eine Alternative tauschen.
 - **Cardio im Plan:** Anzahl und Dauer hängen von Ziel und Vorliebe ab, dazu Puls-Zone 2, Intervalle und ein Schritteziel.
-- **Training live tracken:** Gewicht und Wiederholungen pro Satz, Pausen-Timer und Steigerungs-Tipps auf Basis des letzten Trainings.
+- **Training live tracken:** Gewicht und Wiederholungen pro Satz (mit Komma, z. B. 22,5 kg). Die Werte vom letzten Mal sind vorausgefüllt, und „Letztes Mal: 60 kg × 10, 10, 9“ steht bei jeder Übung. Dazu kommen ein Pausen-Timer, der auch ein Neuladen übersteht, und Steigerungs-Tipps. Offline beendete Trainings werden später automatisch hochgeladen.
 - **Essen tracken, auch ohne KI:** Freitext wie „2 Eier, 2 Scheiben Brot und ein Kaffee mit Milch“ erkennt die App über eine eingebaute Tabelle mit 332 Lebensmitteln. Dazu kommen die Produktsuche in Open Food Facts (Millionen Produkte, kostenlos) und die manuelle Eingabe. Spracheingabe per Mikrofon ist möglich.
 - **KI-Modus (optional):** Mit eigenem API-Key schätzt eine KI Kalorien und Makros aus jedem Text, und ein KI-Coach beantwortet Fragen. Unterstützt werden Google Gemini, Groq, Cerebras, Mistral, OpenRouter, Cohere (alle mit Gratis-Kontingent), OpenAI, Anthropic Claude, xAI, DeepSeek, Together, Fireworks, Perplexity und ein eigener Server (Ollama, LM Studio).
 - **Benutzerkonten:** Profil, Plan, Trainings, Essen, Gewichtsverlauf und Einstellungen werden gespeichert. Dazu kommen Datenexport, Passwort ändern und Konto löschen.
 - **Ernährungstipps** auf der Startseite, beim Essen und im Training.
-- **Hell- und Dunkelmodus.**
+- **Hell- und Dunkelmodus**, Kontraste nach WCAG AA.
+- **Funktioniert offline:** Ist die App einmal geöffnet, startet sie auch ohne Internet (z. B. im Gym-Keller) mit den zuletzt geladenen Daten.
+- **Sicherheit:**
+  - Passwörter werden mit scrypt gehasht, Login-Sitzungen über HttpOnly-Cookies verwaltet.
+  - Login, Registrierung und die KI-Weiterleitung sind begrenzt (Rate Limits).
+  - Sicherheits-Header wie CSP sind gesetzt, und Eingaben werden auf Größe geprüft.
+  - Nach einer Passwortänderung werden alle anderen Geräte abgemeldet.
+  - Beim Abmelden werden lokale Daten (auch der KI-Key) vom Gerät gelöscht.
 
 ---
 
@@ -47,21 +54,23 @@ Die App besteht aus zwei Teilen:
 Training/
 ├── index.html               Einstiegsseite der App
 ├── public/                  Dateien, die 1:1 ausgeliefert werden
-│   ├── exercises/           Übungsbilder (je 2 Bilder = Animation)
+│   ├── exercises/           Übungsbilder: 0.webp + 1.webp (= Animation), thumb.webp
 │   ├── icons/               App-Icons
 │   ├── manifest.webmanifest macht die App installierbar
-│   └── sw.js                Service Worker: Offline-Cache
+│   ├── theme.js             setzt Hell/Dunkel, bevor die Seite erscheint
+│   └── sw.js                Service Worker: Offline-Cache (Dateiliste fügt der Build ein)
 ├── server/                  Backend
 │   ├── index.ts             alle API-Routen (/api/...)
 │   ├── db.ts                Datenbank-Tabellen
-│   ├── auth.ts              Passwörter, Login-Sitzungen
-│   └── ai.ts                Weiterleitung an KI-Anbieter
+│   ├── auth.ts              Passwörter, Login-Sitzungen, Rate Limits
+│   ├── ai.ts                Weiterleitung an KI-Anbieter
+│   └── reset-password.ts    Passwort eines Kontos zurücksetzen (für Betreiber)
 └── src/                     Frontend
     ├── main.tsx             startet React
     ├── App.tsx              welche Seite bei welcher URL
     ├── styles.css           das komplette Design
-    ├── state/app.tsx        eingeloggter Nutzer, Profil, Plan
-    ├── pages/               eine Datei pro Seite
+    ├── state/app.tsx        eingeloggter Nutzer, Profil, Plan, Offline-Speicher
+    ├── pages/               eine Datei pro Seite (z. B. TodayPage.tsx, WorkoutPage.tsx)
     ├── components/          wiederverwendbare Bausteine
     ├── data/
     │   ├── exercises.ts     die Übungsbibliothek
@@ -71,6 +80,9 @@ Training/
         ├── nutrition.ts     Kalorien und Makros
         ├── foodParser.ts    erkennt Essen aus Text (ohne KI)
         ├── ai.ts            KI-Funktionen
+        ├── format.ts        Zahlen formatieren und lesen (Komma!)
+        ├── hooks.ts         Daten laden, Fehlerbehandlung (useAction)
+        ├── storage.ts       sicherer Zugriff auf localStorage
         ├── aiProviders.ts   Liste aller KI-Anbieter
         └── tips.ts          Ernährungs- und Trainingstipps
 ```
@@ -163,7 +175,7 @@ Dein Handy und dein Computer müssen im **selben WLAN** sein.
 ## 4. Tests und Build
 
 ```bash
-npm test            # automatische Tests (Kalorien, Plan-Generator, Essens-Erkennung)
+npm test            # 40 automatische Tests (Kalorien, Plan-Generator, Essens-Erkennung, KI-Antworten)
 npm run typecheck   # prüft den TypeScript-Code auf Fehler
 npm run build       # baut die fertige App in den Ordner dist/
 npm start           # startet den Server, der dist/ ausliefert: http://localhost:3000
@@ -225,6 +237,8 @@ docker run -d --name forma -p 3000:3000 -v forma-data:/data -e NODE_ENV=producti
 
 Davor brauchst du einen Webserver mit HTTPS (z. B. Caddy), der auf Port 3000 weiterleitet.
 
+> **Wichtig:** Port 3000 darf nur über den Webserver bzw. den Hosting-Proxy erreichbar sein, nicht direkt aus dem Internet. Der Server vertraut der IP-Adresse, die der Proxy mitschickt (für die Rate Limits).
+
 > **Warum HTTPS?** Mit `NODE_ENV=production` wird das Login-Cookie nur über HTTPS gesendet. Außerdem brauchen Installation als App und Mikrofon HTTPS. Railway und Fly.io machen das automatisch.
 
 ---
@@ -265,7 +279,7 @@ Genauso geht es mit **Groq** (https://console.groq.com/keys), ebenfalls kostenlo
 
 - **„Modelle laden“** zeigt alle Modelle, die dein Schlüssel nutzen darf. Tippe ins Feld „Modell“, dann erscheint eine Auswahl.
 - **Wo liegt der Schlüssel?** Nur im Browser deines Geräts (`localStorage`), nicht in der Datenbank. Bei einer KI-Anfrage schickt die App ihn einmalig an den Forma-Server, der die Anfrage an den Anbieter weiterleitet. Dadurch gibt es keine Browser-Sperren (CORS). Der Server speichert den Schlüssel nicht.
-- **Eigener Server (Ollama):** Dieser wird direkt aus dem Browser angesprochen, denn der Forma-Server kann deinen Computer nicht erreichen. Starte Ollama mit erlaubtem Zugriff, zum Beispiel: `OLLAMA_ORIGINS=* ollama serve`.
+- **Eigener Server (Ollama):** Dieser wird direkt aus dem Browser angesprochen, denn der Forma-Server kann deinen Computer nicht erreichen. Starte Ollama mit erlaubtem Zugriff, zum Beispiel: `OLLAMA_ORIGINS=* ollama serve`. Aus Sicherheitsgründen (Content Security Policy) muss die Adresse `http://localhost…` oder `https://…` sein.
 
 ---
 
@@ -287,8 +301,8 @@ Genauso geht es mit **Groq** (https://console.groq.com/keys), ebenfalls kostenlo
   | Bulken | +15 % |
   | Fit bleiben | ±0 |
 
-- **Eiweiß:** 1,6 bis 2,0 g pro kg (+0,2 g bei High Protein). Bei viel Körperfett wird mit dem Gewicht bei BMI 27 gerechnet.
-- **Fett:** 27 bis 28 % der Kalorien (Low Carb 40 %, Keto 70 %).
+- **Eiweiß:** 1,6 bis 2,0 g pro kg (+0,2 g bei High Protein), höchstens 40 % der Kalorien. Bei viel Körperfett wird mit dem Gewicht bei BMI 27 gerechnet.
+- **Fett:** 27 bis 28 % der Kalorien (Low Carb 40 %, Keto: der Rest), mindestens 0,6 g pro kg, aber nie mehr, als nach dem Eiweiß noch übrig ist.
 - **Kohlenhydrate:** der Rest (bei Keto maximal 30 g).
 
 **Trainingsplan** (`src/lib/plan.ts`):
@@ -300,16 +314,22 @@ Genauso geht es mit **Groq** (https://console.groq.com/keys), ebenfalls kostenlo
 | 5 | Ober-/Unterkörper + Push/Pull/Beine |
 | 6 | Push / Pull / Beine × 2 |
 
-- Anfänger bekommen maximal 4 Krafttage, die übrigen Tage werden Cardio-Tage.
-- Jeder Trainingstag ist eine Liste von Bewegungsmustern (Kniebeuge, Hüftstreckung, Drücken, Ziehen …). Für jedes Muster nimmt die App die erste passende Übung aus `exercises.ts`, die zu Equipment und Erfahrung passt.
+- Anfänger bekommen maximal 4 Krafttage, die übrigen Tage werden Cardio-Tage. Ein Tag pro Woche bleibt immer ganz frei.
+- Jeder Trainingstag ist eine Liste von Bewegungsmustern (Kniebeuge, Hüftstreckung, Drücken, Ziehen …). Für jedes Muster wählt die App eine passende Übung aus `exercises.ts`:
+  - nur mit Geräten, die du hast (im Gym: Langhantel, Kabel, Maschinen, Kurzhanteln, Kettlebell, Bank, Klimmzugstange),
+  - nur passend zu deiner Erfahrung,
+  - schwerere, besser steigerbare Geräte zuerst, abwechselnd zwischen den besten 3 Optionen,
+  - jeder Tag beginnt mit einer Grundübung (z. B. Kniebeuge statt Beinbeuger),
+  - Rumpf-Übungen an höchstens 2 Tagen pro Woche und nie bis zum Versagen.
+- Der Kalorienverbrauch zählt die Krafttage, die wirklich im Plan stehen, nicht die gewählten.
 - Die Anzahl der Übungen richtet sich nach der Trainingszeit: 30 Min. = 4, 45 Min. = 5, 60 Min. = 6 …
-- **Steigerung (Double Progression):** Schaffst du in allen Sätzen die obere Wiederholungszahl, schlägt die App beim nächsten Mal mehr Gewicht vor.
+- **Steigerung (Double Progression):** Schaffst du in allen Sätzen die obere Wiederholungszahl, schlägt die App beim nächsten Mal mehr Gewicht vor: +1 kg unter 10 kg, +2 kg bis 40 kg, darüber +2,5 kg. Bei Halte-Übungen sind es 5 Sekunden mehr.
 
 ---
 
 ## 9. Erweitern: Übungen, Lebensmittel, KI-Anbieter
 
-**Neue Übung:** Füge in `src/data/exercises.ts` ein Objekt beim passenden `pattern` hinzu. Die Reihenfolge ist die Priorität: weiter oben bedeutet, dass die Übung öfter gewählt wird. Die Bilder legst du als `public/exercises/<ordner>/0.jpg` (Start) und `1.jpg` (Ende) ab. Die vorhandenen Fotos stammen aus der gemeinfreien [free-exercise-db](https://github.com/yuhonas/free-exercise-db) (Public Domain / Unlicense).
+**Neue Übung:** Füge in `src/data/exercises.ts` ein Objekt beim passenden `pattern` hinzu. Die Reihenfolge ist die Priorität: weiter oben bedeutet, dass die Übung öfter gewählt wird. Die Bilder legst du als `public/exercises/<ordner>/0.webp` (Start), `1.webp` (Ende, je ca. 640 px breit) und `thumb.webp` (160 × 160 px) ab. Die vorhandenen Fotos stammen aus der gemeinfreien [free-exercise-db](https://github.com/yuhonas/free-exercise-db) (Public Domain / Unlicense).
 
 **Neues Lebensmittel:** Füge in `src/data/foods.ts` einen Eintrag hinzu (Werte pro 100 g). Unter `aliases` stehen alle Wörter, die Leute dafür tippen, in Kleinbuchstaben.
 
@@ -326,4 +346,6 @@ Genauso geht es mit **Groq** (https://console.groq.com/keys), ebenfalls kostenlo
 | Alle Konten nach einem Neustart weg | Beim Hosting fehlt das Volume unter `/data` (siehe Schritt 5). |
 | KI: „API-Key ungültig“ | Schlüssel neu kopieren (ohne Leerzeichen) oder prüfen, ob er beim Anbieter aktiv ist. |
 | KI: „Modell nicht gefunden“ | Tippe auf „Modelle laden“ und wähl eines aus der Liste. |
+| Passwort vergessen | Auf dem Server `npm run reset-password -- person@beispiel.de` ausführen. Das Programm zeigt ein neues Passwort an und meldet alle Geräte ab. Bei Docker: `docker exec forma npm run reset-password -- person@beispiel.de` |
+| Nach einem Update zeigt die App noch die alte Version | Die App einmal schließen und neu öffnen. Der Service Worker lädt die neue Version im Hintergrund. |
 | Port 3000 oder 5173 schon belegt | Anderes Programm beenden oder den Port wechseln: `PORT=3001 npm run dev:api` (dann auch in `vite.config.ts` anpassen). |

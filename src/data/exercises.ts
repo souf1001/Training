@@ -6,7 +6,7 @@ import type { Exercise } from '../lib/types'
 // core, biceps, triceps, shoulders, calves. Within a pattern: gym (barbell,
 // machine, cable) first, then dumbbells, kettlebell, bands, then bodyweight
 // and home helpers.
-// Images: free-exercise-db (public domain), /public/exercises/<image>/0.jpg + 1.jpg
+// Images: free-exercise-db (public domain), /public/exercises/<image>/0.webp + 1.webp (+ thumb.webp)
 
 export const exercises: Exercise[] = [
   // ───────────────────────────── SQUAT ─────────────────────────────
@@ -392,7 +392,7 @@ export const exercises: Exercise[] = [
     primary: ['Beinbeuger', 'Gesäß'],
     secondary: ['unterer Rücken', 'Bauch'],
     equipment: [],
-    level: 'beginner',
+    level: 'intermediate',
     compound: true,
     image: 'Kettlebell_One-Legged_Deadlift',
     steps: [
@@ -732,7 +732,7 @@ export const exercises: Exercise[] = [
     primary: ['Brust'],
     secondary: ['Trizeps', 'vordere Schulter', 'Bauch'],
     equipment: [],
-    level: 'beginner',
+    level: 'intermediate',
     compound: true,
     image: 'Pushups',
     steps: [
@@ -751,7 +751,7 @@ export const exercises: Exercise[] = [
   },
   {
     id: 'incline-push-up',
-    name: 'Schräge Liegestütz an der Bettkante',
+    name: 'Schräger Liegestütz an der Bettkante',
     pattern: 'pushH',
     primary: ['Brust'],
     secondary: ['Trizeps', 'vordere Schulter', 'Bauch'],
@@ -1100,7 +1100,7 @@ export const exercises: Exercise[] = [
     compound: true,
     image: 'Suspended_Row',
     steps: [
-      'Schließ eine stabile Tür, die von dir weg aufgeht, und schließ sie ab. Leg ein Handtuch um die Türklinke auf deiner Seite.',
+      'Knote ein festes Handtuch dick zusammen, leg den Knoten auf der anderen Seite oben über die Tür (an der Scharnierseite) und schließ die Tür ab. Nie an der Türklinke befestigen, sie hält kein Körpergewicht.',
       'Greif beide Handtuchenden, stell die Füße nah an die Tür und lehn dich mit gestreckten Armen zurück, Körper gerade.',
       'Zieh dich mit den Ellbogen nah am Körper zur Tür, Schulterblätter zusammen.',
       'Lass dich langsam zurück, bis die Arme gestreckt sind.',
@@ -1921,7 +1921,7 @@ export const exercises: Exercise[] = [
   },
   {
     id: 'wall-close-push-up',
-    name: 'Enge Liegestütz an der Wand',
+    name: 'Enger Liegestütz an der Wand',
     pattern: 'triceps',
     primary: ['Trizeps'],
     secondary: ['Brust', 'vordere Schulter'],
@@ -1945,7 +1945,7 @@ export const exercises: Exercise[] = [
   },
   {
     id: 'diamond-push-up',
-    name: 'Enge Liegestütz',
+    name: 'Enger Liegestütz',
     pattern: 'triceps',
     primary: ['Trizeps'],
     secondary: ['Brust', 'vordere Schulter', 'Bauch'],
@@ -2020,12 +2020,12 @@ export const exercises: Exercise[] = [
   {
     id: 'face-pull',
     name: 'Face Pull',
-    pattern: 'shoulders',
+    pattern: 'rearDelts',
     primary: ['hintere Schulter', 'oberer Rücken'],
     secondary: ['seitliche Schulter', 'Bizeps'],
     equipment: ['cable'],
     level: 'beginner',
-    compound: true,
+    compound: false,
     image: 'Face_Pull',
     steps: [
       'Stell den Kabelzug mit Seil auf Stirnhöhe und greif die Seilenden im Obergriff.',
@@ -2068,7 +2068,7 @@ export const exercises: Exercise[] = [
   {
     id: 'reverse-fly',
     name: 'Reverse Flys mit Kurzhanteln',
-    pattern: 'shoulders',
+    pattern: 'rearDelts',
     primary: ['hintere Schulter'],
     secondary: ['oberer Rücken'],
     equipment: ['dumbbells'],
@@ -2092,7 +2092,7 @@ export const exercises: Exercise[] = [
   {
     id: 'band-pull-apart',
     name: 'Band Pull-Apart',
-    pattern: 'shoulders',
+    pattern: 'rearDelts',
     primary: ['hintere Schulter', 'oberer Rücken'],
     secondary: [],
     equipment: ['bands'],
@@ -2116,7 +2116,7 @@ export const exercises: Exercise[] = [
   {
     id: 'prone-y-t-raise',
     name: 'Y-T-Heben in Bauchlage',
-    pattern: 'shoulders',
+    pattern: 'rearDelts',
     primary: ['hintere Schulter', 'oberer Rücken'],
     secondary: ['seitliche Schulter', 'unterer Rücken'],
     equipment: [],
@@ -2136,6 +2136,30 @@ export const exercises: Exercise[] = [
     ],
     tips: ['Klein und kontrolliert – die Arme müssen nicht hoch.', 'Steigerung: kleine Wasserflaschen in die Hände.'],
     mistakes: ['Kopf in den Nacken', 'Schwung', 'Schultern zu den Ohren'],
+  },
+  {
+    id: 'band-lateral-raise',
+    name: 'Seitheben mit Band',
+    pattern: 'shoulders',
+    primary: ['seitliche Schulter'],
+    secondary: ['oberer Rücken'],
+    equipment: ['bands'],
+    level: 'beginner',
+    compound: false,
+    image: 'Lateral_Raise_-_With_Bands',
+    steps: [
+      'Stell dich mittig auf das Band, je ein Ende in einer Hand, Arme leicht gebeugt.',
+      'Oberkörper minimal nach vorn geneigt, Bauch fest.',
+      'Heb die Arme seitlich bis etwa Schulterhöhe, die Ellbogen führen.',
+      'Senk sie langsam und kontrolliert zurück, das Band bleibt leicht gespannt.',
+    ],
+    feel: ['Seitliche Schulter'],
+    notFeel: [
+      'Nacken verspannt – halte die Schultern unten und heb nur bis Schulterhöhe.',
+      'Stechen in der Schulter – dreh die Daumen leicht nach oben und nimm ein leichteres Band.',
+    ],
+    tips: ['Zu schwer? Stell dich nur mit einem Fuß aufs Band oder greif es weiter außen.'],
+    mistakes: ['Schwung aus dem Oberkörper', 'Arme über Schulterhöhe', 'Band schnalzt zurück'],
   },
   {
     id: 'backpack-lateral-raise',

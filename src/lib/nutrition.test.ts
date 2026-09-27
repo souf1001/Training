@@ -13,11 +13,12 @@ describe('calcBmr (Mifflin-St Jeor)', () => {
 
 describe('calcTargets', () => {
   const base = { ...DEFAULT_PROFILE, sex: 'male' as const, weightKg: 80, heightCm: 180, age: 30 }
+  const load = { strengthSessions: 3, cardioMinutes: 60 }
 
   it('eats less to lose and more to bulk', () => {
-    const lose = calcTargets({ ...base, goal: 'lose' })
-    const fit = calcTargets({ ...base, goal: 'fit' })
-    const bulk = calcTargets({ ...base, goal: 'bulk' })
+    const lose = calcTargets({ ...base, goal: 'lose' }, load)
+    const fit = calcTargets({ ...base, goal: 'fit' }, load)
+    const bulk = calcTargets({ ...base, goal: 'bulk' }, load)
     expect(lose.kcal).toBeLessThan(fit.kcal)
     expect(bulk.kcal).toBeGreaterThan(fit.kcal)
     expect(fit.kcal).toBeCloseTo(fit.tdee, -1)
@@ -25,23 +26,30 @@ describe('calcTargets', () => {
 
   it('macros add up to the calorie goal', () => {
     for (const dietStyle of ['balanced', 'highProtein', 'lowCarb', 'keto'] as const) {
-      const t = calcTargets({ ...base, dietStyle })
+      const t = calcTargets({ ...base, dietStyle }, load)
       const fromMacros = t.protein * 4 + t.carbs * 4 + t.fat * 9
       expect(Math.abs(fromMacros - t.kcal)).toBeLessThan(25)
     }
   })
 
   it('keto keeps carbs at 30 g', () => {
-    expect(calcTargets({ ...base, dietStyle: 'keto' }).carbs).toBe(30)
+    expect(calcTargets({ ...base, dietStyle: 'keto' }, load).carbs).toBe(30)
   })
 
   it('never goes below a safe minimum', () => {
-    const tiny = calcTargets({ ...base, sex: 'female', weightKg: 45, heightCm: 150, age: 70, activity: 'sedentary', trainingDays: [], goal: 'lose' })
+    const tiny = calcTargets({ ...base, sex: 'female', weightKg: 45, heightCm: 150, age: 70, activity: 'sedentary', trainingDays: [], goal: 'lose' }, { strengthSessions: 0, cardioMinutes: 0 })
     expect(tiny.kcal).toBeGreaterThanOrEqual(1200)
   })
 
+  it('macros never exceed a very low own calorie goal', () => {
+    for (const dietStyle of ['balanced', 'highProtein', 'lowCarb', 'keto', 'vegan'] as const) {
+      const t = calcTargets({ ...base, weightKg: 120, dietStyle, kcalOverride: 1000 }, load)
+      expect(t.protein * 4 + t.carbs * 4 + t.fat * 9).toBeLessThanOrEqual(1000 + 20)
+    }
+  })
+
   it('uses the own calorie goal when set', () => {
-    expect(calcTargets({ ...base, kcalOverride: 2222 }).kcal).toBe(2222)
+    expect(calcTargets({ ...base, kcalOverride: 2222 }, load).kcal).toBe(2222)
   })
 })
 

@@ -1,22 +1,21 @@
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronRight, Footprints, HeartPulse, RefreshCw } from 'lucide-react'
-import { PageHeader, Spinner, formatNumber } from '../components/ui'
+import { ErrorText, PageHeader, Spinner } from '../components/ui'
+import { useAction } from '../lib/hooks'
+import { formatNumber } from '../lib/format'
 import { useMe } from '../state/app'
 import { generatePlan } from '../lib/plan'
 import { weekdayIndex } from '../lib/dates'
-import { WEEKDAYS } from '../lib/labels'
+import { WEEKDAYS_SHORT } from '../lib/labels'
 
 export function PlanPage() {
   const { me, savePlan } = useMe()
-  const [busy, setBusy] = useState(false)
+  const action = useAction()
   const today = weekdayIndex()
 
   async function regenerate() {
     if (!confirm('Plan neu erstellen? Getauschte Übungen werden zurückgesetzt.')) return
-    setBusy(true)
-    await savePlan(generatePlan(me.profile))
-    setBusy(false)
+    await action.run(() => savePlan(generatePlan(me.profile)))
   }
 
   return (
@@ -24,13 +23,13 @@ export function PlanPage() {
       <PageHeader eyebrow={me.plan.splitName} title="Dein Plan" />
 
       <div className="card tight">
-        {WEEKDAYS.map((name, weekday) => {
+        {WEEKDAYS_SHORT.map((short, weekday) => {
           const day = me.plan.days.find((d) => d.weekday === weekday)
           const content = (
             <>
               <div style={{ width: 36 }}>
                 <div className={`small ${weekday === today ? '' : 'muted'}`} style={{ fontWeight: 700, color: weekday === today ? 'var(--accent)' : undefined }}>
-                  {name.slice(0, 2)}
+                  {short}
                 </div>
               </div>
               <div className="grow">
@@ -81,9 +80,10 @@ export function PlanPage() {
         </ul>
       </div>
 
-      <button className="btn secondary block" onClick={regenerate} disabled={busy}>
-        {busy ? <Spinner /> : <><RefreshCw size={18} /> Plan neu erstellen</>}
+      <button className="btn secondary block" onClick={regenerate} disabled={action.busy}>
+        {action.busy ? <Spinner /> : <><RefreshCw size={18} /> Plan neu erstellen</>}
       </button>
+      <ErrorText>{action.error}</ErrorText>
       <p className="muted small" style={{ textAlign: 'center' }}>
         Trainingstage, Ziel oder Equipment änderst du unter <Link to="/profil">Profil</Link>.
       </p>

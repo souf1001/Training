@@ -4,7 +4,8 @@
 // 3. choose sets, reps, effort and rest for the goal
 // 4. spread cardio over the week
 import { exercises } from '../data/exercises'
-import { ALL_EQUIPMENT, CARDIO_TYPES } from './labels'
+import { CARDIO_TYPES } from './labels'
+import { formatKg } from './format'
 import { zone2 } from './nutrition'
 import type {
   CardioSession,
@@ -18,6 +19,7 @@ import type {
   PlanDay,
   PlannedExercise,
   Profile,
+  WeeklyLoad,
 } from './types'
 
 interface DayTemplate {
@@ -38,55 +40,55 @@ const FULL_A: DayTemplate = {
 const FULL_B: DayTemplate = {
   title: 'Ganzkörper B',
   focus: 'Po, Schultern, Rücken',
-  patterns: ['hinge', 'pushV', 'pullV', 'lunge', 'glutes', 'core', 'triceps', 'biceps', 'calves'],
+  patterns: ['hinge', 'pushV', 'pullV', 'lunge', 'core', 'glutes', 'rearDelts', 'triceps', 'biceps'],
   variant: 1,
 }
 const FULL_C: DayTemplate = {
   title: 'Ganzkörper C',
   focus: 'Beine, Brust, Latissimus',
-  patterns: ['lunge', 'pushH', 'pullV', 'squat', 'shoulders', 'core', 'biceps', 'triceps'],
+  patterns: ['lunge', 'pushH', 'pullV', 'squat', 'rearDelts', 'core', 'biceps', 'triceps'],
   variant: 2,
 }
 const UPPER_A: DayTemplate = {
   title: 'Oberkörper A',
   focus: 'Brust, Rücken, Arme',
-  patterns: ['pushH', 'pullH', 'pushV', 'pullV', 'shoulders', 'biceps', 'triceps', 'core'],
+  patterns: ['pushH', 'pullH', 'pushV', 'pullV', 'shoulders', 'biceps', 'triceps', 'rearDelts', 'core'],
   variant: 0,
 }
 const UPPER_B: DayTemplate = {
   title: 'Oberkörper B',
   focus: 'Schultern, Latissimus, Arme',
-  patterns: ['pullV', 'pushV', 'pullH', 'pushH', 'shoulders', 'triceps', 'biceps', 'core'],
+  patterns: ['pullV', 'pushV', 'pullH', 'pushH', 'rearDelts', 'triceps', 'biceps', 'shoulders', 'core'],
   variant: 1,
 }
 const LOWER_A: DayTemplate = {
   title: 'Unterkörper A',
   focus: 'Beine & Po',
-  patterns: ['squat', 'hinge', 'lunge', 'glutes', 'calves', 'core'],
+  patterns: ['squat', 'hinge', 'lunge', 'glutes', 'calves', 'core', 'squat', 'hinge'],
   variant: 0,
 }
 const LOWER_B: DayTemplate = {
   title: 'Unterkörper B',
   focus: 'Po & Beinbeuger',
-  patterns: ['hinge', 'squat', 'glutes', 'lunge', 'calves', 'core'],
+  patterns: ['hinge', 'squat', 'glutes', 'lunge', 'calves', 'core', 'hinge', 'squat'],
   variant: 1,
 }
 const PUSH: DayTemplate = {
   title: 'Push',
   focus: 'Brust, Schultern, Trizeps',
-  patterns: ['pushH', 'pushV', 'pushH', 'shoulders', 'triceps', 'triceps', 'core'],
+  patterns: ['pushH', 'pushV', 'pushH', 'shoulders', 'triceps', 'triceps', 'core', 'pushV'],
   variant: 0,
 }
 const PULL: DayTemplate = {
   title: 'Pull',
   focus: 'Rücken & Bizeps',
-  patterns: ['pullV', 'pullH', 'pullV', 'shoulders', 'biceps', 'biceps', 'core'],
+  patterns: ['pullV', 'pullH', 'pullV', 'rearDelts', 'biceps', 'biceps', 'core', 'pullH'],
   variant: 0,
 }
 const LEGS: DayTemplate = {
   title: 'Beine',
   focus: 'Beine, Po, Waden',
-  patterns: ['squat', 'hinge', 'lunge', 'glutes', 'calves', 'core'],
+  patterns: ['squat', 'hinge', 'lunge', 'glutes', 'calves', 'core', 'squat', 'glutes'],
   variant: 0,
 }
 
@@ -99,7 +101,8 @@ const SPLITS: Record<number, { name: string; days: DayTemplate[] }> = {
   2: { name: 'Ganzkörper A/B', days: [FULL_A, FULL_B] },
   3: { name: 'Ganzkörper A/B/C', days: [FULL_A, FULL_B, FULL_C] },
   4: { name: 'Oberkörper / Unterkörper', days: [UPPER_A, LOWER_A, UPPER_B, LOWER_B] },
-  5: { name: 'Ober-/Unterkörper + Push/Pull/Beine', days: [UPPER_A, LOWER_A, PUSH, PULL, LEGS] },
+  // Push and Beine use the second variant, so they differ from Oberkörper A / Unterkörper A
+  5: { name: 'Ober-/Unterkörper + Push/Pull/Beine', days: [UPPER_A, LOWER_A, { ...PUSH, variant: 1 }, PULL, { ...LEGS, variant: 1 }] },
   6: { name: 'Push / Pull / Beine', days: [PUSH, PULL, LEGS, second(PUSH), second(PULL), second(LEGS)] },
 }
 
@@ -108,18 +111,26 @@ const MAX_STRENGTH_DAYS: Record<Experience, number> = { beginner: 4, intermediat
 
 const LEVEL_RANK: Record<Experience, number> = { beginner: 0, intermediate: 1, advanced: 2 }
 
+// In the gym you use real gym equipment, not bands, chairs or backpacks.
+const GYM_EQUIPMENT: Equipment[] = ['barbell', 'cable', 'machine', 'dumbbells', 'kettlebell', 'bench', 'pullupbar']
+
 export function availableEquipment(p: Pick<Profile, 'location' | 'equipment'>): Set<Equipment> {
-  return new Set(p.location === 'gym' ? ALL_EQUIPMENT : p.equipment)
+  return new Set(p.location === 'gym' ? GYM_EQUIPMENT : p.equipment)
+}
+
+// Heavier, more adjustable equipment first: it lets you progress for longer.
+function equipmentTier(e: Exercise): number {
+  if (e.equipment.some((q) => q === 'barbell' || q === 'cable' || q === 'machine')) return 0
+  if (e.equipment.some((q) => q === 'dumbbells' || q === 'kettlebell' || q === 'pullupbar')) return 1
+  if (e.equipment.includes('bands')) return 2
+  return 3
 }
 
 // All exercises of a pattern you can do with your equipment and level, best first.
 export function candidates(pattern: Pattern, equipment: Set<Equipment>, level: Experience): Exercise[] {
-  return exercises.filter(
-    (e) =>
-      e.pattern === pattern &&
-      e.equipment.every((item) => equipment.has(item)) &&
-      LEVEL_RANK[e.level] <= LEVEL_RANK[level],
-  )
+  return exercises
+    .filter((e) => e.pattern === pattern && e.equipment.every((item) => equipment.has(item)) && LEVEL_RANK[e.level] <= LEVEL_RANK[level])
+    .sort((a, b) => equipmentTier(a) - equipmentTier(b)) // stable: keeps the file order inside a tier
 }
 
 function exercisesPerSession(minutes: number): number {
@@ -130,20 +141,31 @@ function exercisesPerSession(minutes: number): number {
   return 8
 }
 
-function buildDay(template: DayTemplate, p: Profile): PlannedExercise[] {
+// Core work on at most 2 days a week is plenty.
+const MAX_CORE_DAYS = 2
+
+function buildDay(template: DayTemplate, p: Profile, coreDays: { count: number }): PlannedExercise[] {
   const equipment = availableEquipment(p)
   const count = exercisesPerSession(p.sessionMinutes)
   const used = new Set<string>()
   const planned: PlannedExercise[] = []
+  let hasCore = false
 
   for (const pattern of template.patterns) {
     if (planned.length >= count) break
-    const options = candidates(pattern, equipment, p.experience).filter((e) => !used.has(e.id))
+    if (pattern === 'core' && (hasCore || coreDays.count >= MAX_CORE_DAYS)) continue
+    let options = candidates(pattern, equipment, p.experience).filter((e) => !used.has(e.id))
+    // start the day with a big multi-joint exercise (not e.g. a leg curl)
+    if (planned.length === 0 && options.some((e) => e.compound)) options = options.filter((e) => e.compound)
     if (options.length === 0) continue
-    const exercise = options[template.variant % options.length]
+    // rotate only between the best few options, so variety never means a weak exercise
+    const pool = options.slice(0, 3)
+    const exercise = pool[template.variant % pool.length]
     used.add(exercise.id)
     planned.push(prescribe(exercise, p))
+    if (pattern === 'core') hasCore = true
   }
+  if (hasCore) coreDays.count++
   return planned
 }
 
@@ -168,11 +190,11 @@ export function prescribe(e: Exercise, p: Pick<Profile, 'goal' | 'experience'>):
   const sets = e.compound ? { beginner: 3, intermediate: 3, advanced: 4 }[level] : { beginner: 2, intermediate: 3, advanced: 3 }[level]
 
   // RIR = reps in reserve. 2 means: stop when you could still do 2 more clean reps.
-  const rir = e.compound ? { beginner: 3, intermediate: 2, advanced: 1 }[level] : { beginner: 2, intermediate: 1, advanced: 0 }[level]
+  const rir = e.compound ? { beginner: 3, intermediate: 2, advanced: 1 }[level] : { beginner: 2, intermediate: 1, advanced: 1 }[level]
 
-  // Going to failure is fine for small and bodyweight exercises,
-  // but not for heavy barbell lifts where technique breaks down.
-  const lastSetToFailure = level !== 'beginner' && !e.timed && (!e.compound || bodyweightOnly)
+  // Going to failure is fine for small and bodyweight exercises, but not for heavy
+  // barbell lifts (technique breaks down) or core work (the lower back takes over).
+  const lastSetToFailure = level !== 'beginner' && !e.timed && e.pattern !== 'core' && (!e.compound || bodyweightOnly)
 
   let restSec: number
   if (e.timed) restSec = 45
@@ -225,7 +247,7 @@ function cardioSessions(p: Profile): CardioSession[] {
         type,
         minutes: 20,
         intensity: 'intervals',
-        note: `${CARDIO_TYPES[type]}: 5 Min. locker einwärmen, dann 8 × 30 Sek. schnell und 90 Sek. locker, 3 Min. auslaufen.`,
+        note: `${CARDIO_TYPES[type]}: 5 Min. locker aufwärmen, dann 8 × 30 Sek. schnell und 90 Sek. locker, 3 Min. auslaufen.`,
       })
     } else {
       const type = types[i % types.length]
@@ -249,13 +271,14 @@ export function generatePlan(p: Profile): Plan {
 
   // spread strength days over the chosen days, leftover chosen days get cardio
   const strengthDays = pickSpread(chosenDays, strengthCount)
+  const coreDays = { count: 0 }
   const days: PlanDay[] = strengthDays.map((weekday, i) => {
     const template = split.days[i]
     return {
       weekday,
       title: template.title,
       focus: template.focus,
-      exercises: buildDay(template, p),
+      exercises: buildDay(template, p, coreDays),
       cardio: null,
     }
   })
@@ -292,7 +315,15 @@ export function generatePlan(p: Profile): Plan {
 function pickSpread<T>(items: T[], count: number): T[] {
   if (count >= items.length) return items
   const step = items.length / count
-  return Array.from({ length: count }, (_, i) => items[Math.floor(i * step)])
+  return Array.from({ length: count }, (_, i) => items[Math.floor((i + 0.5) * step)])
+}
+
+// What a week of the plan contains; the calorie calculation needs it.
+export function weeklyLoad(plan: Plan): WeeklyLoad {
+  return {
+    strengthSessions: plan.days.filter((d) => d.exercises.length > 0).length,
+    cardioMinutes: plan.days.reduce((sum, d) => sum + (d.cardio?.minutes ?? 0), 0),
+  }
 }
 
 function planNotes(p: Profile, cappedDays: boolean): string[] {
@@ -318,26 +349,24 @@ function planNotes(p: Profile, cappedDays: boolean): string[] {
 
 // --- progression ------------------------------------------------------------------
 
-// Suggestion for the next session, based on the last time you did this exercise.
-export function nextTarget(planned: PlannedExercise, last: { weight: number | null; reps: number | null }[] | undefined): string {
-  if (!last || last.length === 0) return 'Erstes Mal: Wähl ein Gewicht, mit dem die Technik sauber bleibt.'
+// Suggestion for today, based on the last time you did this exercise ("double progression").
+export function nextTarget(planned: PlannedExercise, exercise: Exercise, last: { weight: number | null; reps: number | null }[] | undefined): string {
+  if (!last || last.length === 0) {
+    return exercise.timed ? 'Erstes Mal: Halte so lange, wie die Position sauber bleibt.' : 'Erstes Mal: Wähl ein Gewicht, mit dem die Technik sauber bleibt.'
+  }
   const done = last.filter((s) => s.reps != null)
   if (done.length === 0) return ''
   const allTop = done.length >= planned.sets && done.every((s) => (s.reps ?? 0) >= planned.repsMax)
   const weight = Math.max(...done.map((s) => s.weight ?? 0))
 
+  if (exercise.timed) return allTop ? 'Letztes Mal alles geschafft. Heute: 5 Sek. länger halten.' : 'Versuch heute ein paar Sekunden länger.'
   if (allTop) {
+    // small jumps for light weights (dumbbells often go up in 1–2 kg steps)
     return weight > 0
-      ? `Letztes Mal alle Sätze geschafft. Heute: ${formatKg(weight + (weight >= 40 ? 2.5 : 1))} versuchen.`
+      ? `Letztes Mal alle Sätze geschafft. Heute: ${formatKg(weight + (weight >= 40 ? 2.5 : weight >= 10 ? 2 : 1))} versuchen.`
       : 'Letztes Mal alle Sätze geschafft. Heute: langsamer ausführen oder eine schwerere Variante.'
   }
-  return weight > 0
-    ? `Bleib bei ${formatKg(weight)} und versuch 1 Wiederholung mehr pro Satz.`
-    : 'Versuch heute 1 Wiederholung mehr pro Satz.'
-}
-
-export function formatKg(kg: number): string {
-  return `${String(Math.round(kg * 10) / 10).replace('.', ',')} kg`
+  return weight > 0 ? `Bleib bei ${formatKg(weight)} und versuch 1 Wiederholung mehr pro Satz.` : 'Versuch heute 1 Wiederholung mehr pro Satz.'
 }
 
 export function exerciseById(id: string): Exercise | undefined {

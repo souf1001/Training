@@ -4,7 +4,7 @@ import { exercises } from '../data/exercises'
 import { DEFAULT_PROFILE } from '../state/app'
 import type { Equipment, Pattern, Profile } from './types'
 
-const PATTERNS: Pattern[] = ['squat', 'hinge', 'lunge', 'pushH', 'pushV', 'pullH', 'pullV', 'glutes', 'core', 'biceps', 'triceps', 'shoulders', 'calves']
+const PATTERNS: Pattern[] = ['squat', 'hinge', 'lunge', 'pushH', 'pushV', 'pullH', 'pullV', 'glutes', 'core', 'biceps', 'triceps', 'shoulders', 'rearDelts', 'calves']
 
 function profile(changes: Partial<Profile>): Profile {
   return { ...DEFAULT_PROFILE, ...changes }
@@ -30,6 +30,8 @@ describe('exercise library', () => {
   for (const [name, equipment] of setups) {
     it(`covers every movement pattern at home with ${name}`, () => {
       for (const pattern of PATTERNS) {
+        // side delts can't be trained without any weight; pushV and rearDelts cover the shoulders then
+        if (pattern === 'shoulders' && equipment.length === 0) continue
         expect(candidates(pattern, new Set(equipment), 'beginner').length, pattern).toBeGreaterThan(0)
       }
     })
@@ -83,6 +85,37 @@ describe('generatePlan', () => {
     expect(plan.days.length).toBeLessThan(7)
   })
 
+  it('uses only gym equipment in the gym and starts every day with a compound exercise', () => {
+    for (const experience of ['beginner', 'intermediate', 'advanced'] as const) {
+      for (const days of [[0, 3], [0, 2, 4], [0, 1, 3, 4], [0, 1, 2, 3, 4], [0, 1, 2, 3, 4, 5]]) {
+        for (const day of generatePlan(profile({ location: 'gym', experience, trainingDays: days })).days) {
+          if (day.exercises.length === 0) continue
+          const list = day.exercises.map((pe) => exercises.find((e) => e.id === pe.exerciseId)!)
+          expect(list[0].compound, `${day.title} starts with ${list[0].id}`).toBe(true)
+          for (const e of list) {
+            expect(e.equipment.some((q) => ['bands', 'chair', 'bed', 'towel', 'backpack'].includes(q)), e.id).toBe(false)
+          }
+        }
+      }
+    }
+  })
+
+  it('plans core on at most 2 days and never to failure', () => {
+    const plan = generatePlan(profile({ experience: 'advanced', trainingDays: [0, 1, 2, 3, 4, 5], sessionMinutes: 90 }))
+    const coreDays = plan.days.filter((d) => d.exercises.some((pe) => exercises.find((e) => e.id === pe.exerciseId)!.pattern === 'core'))
+    expect(coreDays.length).toBeLessThanOrEqual(2)
+    for (const day of coreDays) {
+      for (const pe of day.exercises) {
+        if (exercises.find((e) => e.id === pe.exerciseId)!.pattern === 'core') expect(pe.lastSetToFailure).toBe(false)
+      }
+    }
+  })
+
+  it('spreads strength days evenly', () => {
+    const plan = generatePlan(profile({ experience: 'beginner', trainingDays: [0, 1, 2, 3, 4, 5, 6], cardioLevel: 'none' }))
+    expect(plan.days.filter((d) => d.exercises.length).map((d) => d.weekday)).toEqual([0, 2, 4, 6])
+  })
+
   it('uses heavier rep ranges for building muscle', () => {
     const build = generatePlan(profile({ goal: 'bulk', location: 'gym' }))
     const first = build.days[0].exercises[0]
@@ -92,13 +125,20 @@ describe('generatePlan', () => {
 
 describe('nextTarget', () => {
   const planned = { exerciseId: 'x', sets: 3, repsMin: 8, repsMax: 12, rir: 2, restSec: 90, lastSetToFailure: false }
+  const bench = exercises.find((e) => e.id === 'bench-press')!
+  const plank = exercises.find((e) => e.id === 'plank')!
 
   it('suggests more weight when all sets hit the top of the range', () => {
     const last = [1, 2, 3].map(() => ({ weight: 50, reps: 12 }))
-    expect(nextTarget(planned, last)).toContain('52,5 kg')
+    expect(nextTarget(planned, bench, last)).toContain('52,5 kg')
+    expect(nextTarget(planned, bench, [1, 2, 3].map(() => ({ weight: 12, reps: 12 })))).toContain('14 kg')
   })
 
   it('suggests more reps otherwise', () => {
-    expect(nextTarget(planned, [{ weight: 50, reps: 9 }])).toContain('1 Wiederholung mehr')
+    expect(nextTarget(planned, bench, [{ weight: 50, reps: 9 }])).toContain('1 Wiederholung mehr')
+  })
+
+  it('talks about seconds for holds', () => {
+    expect(nextTarget(planned, plank, [1, 2, 3].map(() => ({ weight: null, reps: 12 })))).toContain('Sek.')
   })
 })

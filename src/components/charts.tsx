@@ -8,6 +8,7 @@ const PAD = { top: 16, right: 8, bottom: 22, left: 34 }
 interface Point {
   label: string // x axis label, e.g. "12.09."
   value: number
+  trend?: number // optional smoothed value (e.g. 7-day average), drawn as the line
 }
 
 function niceRange(values: number[], padding: number): [number, number] {
@@ -31,14 +32,17 @@ function useHover(count: number, toIndex: (x: number) => number) {
 }
 
 export function LineChart({ points, unit, height = 160 }: { points: Point[]; unit: string; height?: number }) {
-  const values = points.map((p) => p.value)
+  const values = points.flatMap((p) => (p.trend != null ? [p.value, p.trend] : [p.value]))
+  const hasTrend = points.some((p) => p.trend != null)
   const [min, max] = niceRange(values, 0.5)
   const innerW = WIDTH - PAD.left - PAD.right
   const hover = useHover(points.length, (px) => Math.round(((px - PAD.left) / innerW) * (points.length - 1)))
   const innerH = height - PAD.top - PAD.bottom
   const x = (i: number) => PAD.left + (points.length === 1 ? innerW / 2 : (i / (points.length - 1)) * innerW)
   const y = (v: number) => PAD.top + (1 - (v - min) / (max - min || 1)) * innerH
-  const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i)},${y(p.value)}`).join(' ')
+  // with a trend, the line shows the average and the single measurements are small dots
+  const lineValue = (p: Point) => (hasTrend ? (p.trend ?? p.value) : p.value)
+  const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i)},${y(lineValue(p))}`).join(' ')
   const active = hover.index != null ? points[hover.index] : null
   const firstLabel = points[0]?.label
   const lastLabel = points[points.length - 1]?.label
@@ -62,6 +66,7 @@ export function LineChart({ points, unit, height = 160 }: { points: Point[]; uni
             {lastLabel}
           </text>
         )}
+        {hasTrend && points.map((p, i) => <circle key={i} cx={x(i)} cy={y(p.value)} r={2.5} fill="var(--text-3)" opacity={0.6} />)}
         <path d={path} fill="none" stroke="var(--chart)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
         {hover.index != null && (
           <>
@@ -76,6 +81,7 @@ export function LineChart({ points, unit, height = 160 }: { points: Point[]; uni
       {active && (
         <div className="chart-tooltip" style={{ left: `${(x(hover.index!) / WIDTH) * 100}%` }}>
           {active.label}: {active.value.toLocaleString('de-DE')} {unit}
+          {active.trend != null && ` · Ø ${active.trend.toLocaleString('de-DE', { maximumFractionDigits: 1 })}`}
         </div>
       )}
     </div>

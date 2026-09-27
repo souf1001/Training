@@ -1,5 +1,6 @@
 // The API server. It also serves the built web app (dist/) in production.
 import express from 'express'
+import compression from 'compression'
 import path from 'node:path'
 import { existsSync } from 'node:fs'
 import { db } from './db.ts'
@@ -22,6 +23,7 @@ import { complete, listModels, AiError } from './ai.ts'
 const app = express()
 app.set('trust proxy', 1) // we run behind the hosting provider's proxy (HTTPS)
 app.disable('x-powered-by')
+app.use(compression()) // gzip: the app loads about 3x faster
 app.use(express.json({ limit: '200kb' }))
 
 // Security headers: no framing (clickjacking), no MIME sniffing, and a
@@ -55,6 +57,7 @@ app.use((req, res, next) => {
 
 const toJson = (value: unknown) => (value === undefined ? null : JSON.stringify(value))
 const fromJson = (value: unknown) => (typeof value === 'string' ? JSON.parse(value) : null)
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 const isPassword = (value: unknown): value is string => typeof value === 'string' && value.length >= 8 && value.length <= 200
 const isIsoDate = (value: unknown): value is string =>
   typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})?$/.test(value)
@@ -82,7 +85,7 @@ app.post('/api/auth/register', rateLimit('register', 10, 60 * 60 * 1000), async 
     return res.status(400).json({ error: 'Das Passwort braucht mindestens 8 Zeichen.' })
   }
   if (tooBig(profile) || tooBig(plan)) {
-    return res.status(400).json({ error: 'Ungültige Daten' })
+    return res.status(400).json({ error: 'Ungültige Daten.' })
   }
   if (db.prepare('SELECT id FROM users WHERE email = ?').get(cleanEmail)) {
     return res.status(409).json({ error: 'Diese E-Mail ist schon registriert.' })
@@ -91,6 +94,8 @@ app.post('/api/auth/register', rateLimit('register', 10, 60 * 60 * 1000), async 
   // profile and plan come from the questionnaire the user filled out before registering
   const passwordHash = await hashPassword(password)
   const kg = Number(profile?.weightKg)
+  // the phone's date (the server may be in another time zone)
+  const today = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.today)) ? String(req.body.today) : new Date().toISOString().slice(0, 10)
   db.exec('BEGIN')
   try {
     const result = db
@@ -98,7 +103,7 @@ app.post('/api/auth/register', rateLimit('register', 10, 60 * 60 * 1000), async 
       .run(cleanEmail, passwordHash, toJson(profile), toJson(plan), '{}')
     const userId = Number(result.lastInsertRowid)
     if (kg > 20 && kg < 400) {
-      db.prepare('INSERT INTO weights (user_id, date, kg) VALUES (?, ?, ?)').run(userId, new Date().toISOString().slice(0, 10), kg)
+      db.prepare('INSERT INTO weights (user_id, date, kg) VALUES (?, ?, ?)').run(userId, today, kg)
     }
     db.exec('COMMIT')
     startSession(res, userId)
@@ -154,7 +159,7 @@ app.put('/api/me', requireUser, (req, res) => {
   // only these three columns can be changed here (the names are fixed, never from the request)
   const fields = (['profile', 'plan', 'settings'] as const).filter((f) => req.body?.[f] !== undefined)
   if (fields.some((f) => tooBig(req.body[f]))) {
-    return res.status(400).json({ error: 'Daten zu groß' })
+    return res.status(400).json({ error: 'Daten zu groß.' })
   }
   for (const field of fields) {
     db.prepare(`UPDATE users SET ${field} = ? WHERE id = ?`).run(toJson(req.body[field]), req.userId)
@@ -219,13 +224,19 @@ app.get('/api/workouts', requireUser, (req, res) => {
   res.json(listWorkouts(req.userId, limit))
 })
 
+app.get('/api/workouts/count', requireUser, (req, res) => {
+  res.json({ total: countRows('workouts', req.userId) })
+})
+
+const isLoggedExercise = (e: unknown) => isObject(e) && typeof e.exerciseId === 'string' && Array.isArray(e.sets) && e.sets.every(isObject)
+
 app.post('/api/workouts', requireUser, (req, res) => {
   const workout = req.body
-  if (!isIsoDate(workout?.date) || !Array.isArray(workout.exercises) || tooBig(workout)) {
-    return res.status(400).json({ error: 'Ungültiges Training' })
+  if (!isIsoDate(workout?.date) || !Array.isArray(workout.exercises) || !workout.exercises.every(isLoggedExercise) || tooBig(workout)) {
+    return res.status(400).json({ error: 'Ungültiges Training.' })
   }
   if (countRows('workouts', req.userId) >= MAX_WORKOUTS) {
-    return res.status(403).json({ error: 'Speicherlimit erreicht' })
+    return res.status(403).json({ error: 'Speicherlimit erreicht.' })
   }
   delete workout.id
   const result = db
@@ -257,8 +268,6 @@ function cleanFood(input: Record<string, unknown>) {
   }
 }
 
-const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
-
 app.get('/api/food', requireUser, (req, res) => {
   const from = String(req.query.from ?? '0000')
   const to = String(req.query.to ?? '9999')
@@ -273,10 +282,10 @@ app.get('/api/food', requireUser, (req, res) => {
 app.post('/api/food', requireUser, (req, res) => {
   const items: unknown[] = Array.isArray(req.body) ? req.body : [req.body]
   if (items.length === 0 || items.length > 50 || !items.every(isObject)) {
-    return res.status(400).json({ error: 'Ungültige Einträge' })
+    return res.status(400).json({ error: 'Ungültige Einträge.' })
   }
   if (countRows('food_entries', req.userId) + items.length > MAX_FOOD_ENTRIES) {
-    return res.status(403).json({ error: 'Speicherlimit erreicht' })
+    return res.status(403).json({ error: 'Speicherlimit erreicht.' })
   }
   const insert = db.prepare(
     'INSERT INTO food_entries (user_id, eaten_at, name, amount, kcal, protein, carbs, fat, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -298,12 +307,12 @@ app.post('/api/food', requireUser, (req, res) => {
 })
 
 app.put('/api/food/:id', requireUser, (req, res) => {
-  if (!isObject(req.body)) return res.status(400).json({ error: 'Ungültiger Eintrag' })
+  if (!isObject(req.body)) return res.status(400).json({ error: 'Ungültiger Eintrag.' })
   const food = cleanFood(req.body)
   const result = db
     .prepare('UPDATE food_entries SET eaten_at = ?, name = ?, amount = ?, kcal = ?, protein = ?, carbs = ?, fat = ?, source = ? WHERE id = ? AND user_id = ?')
     .run(food.eatenAt, food.name, food.amount, food.kcal, food.protein, food.carbs, food.fat, food.source, Number(req.params.id), req.userId)
-  if (result.changes === 0) return res.status(404).json({ error: 'Nicht gefunden' })
+  if (result.changes === 0) return res.status(404).json({ error: 'Nicht gefunden.' })
   res.json({ ...food, id: Number(req.params.id) })
 })
 
@@ -323,7 +332,7 @@ app.post('/api/weights', requireUser, (req, res) => {
   const date = String(req.body?.date ?? '').slice(0, 10)
   const kg = Number(req.body?.kg)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !(kg > 20 && kg < 400)) {
-    return res.status(400).json({ error: 'Ungültiges Gewicht' })
+    return res.status(400).json({ error: 'Ungültiges Gewicht.' })
   }
   db.prepare(
     'INSERT INTO weights (user_id, date, kg) VALUES (?, ?, ?) ON CONFLICT (user_id, date) DO UPDATE SET kg = excluded.kg',
@@ -377,7 +386,11 @@ app.post('/api/ai/models', requireUser, rateLimit('ai-models', 20, 60 * 60 * 100
 })
 
 function sendAiError(res: express.Response, error: unknown) {
-  if (error instanceof AiError) return res.status(error.status).json({ error: error.message })
+  if (error instanceof AiError) {
+    // A 401 from the provider means a wrong API key, not that the user is logged out of Forma.
+    const status = error.status === 401 || error.status === 403 ? 400 : error.status >= 500 ? 502 : error.status
+    return res.status(status).json({ error: error.message })
+  }
   // only the error type: the error message could contain the API key
   console.error('AI request failed:', (error as Error)?.name)
   res.status(502).json({ error: 'Der KI-Anbieter ist gerade nicht erreichbar.' })
@@ -386,7 +399,7 @@ function sendAiError(res: express.Response, error: unknown) {
 // --- web app -------------------------------------------------------------------
 
 app.use('/api', (_req, res) => {
-  res.status(404).json({ error: 'Nicht gefunden' })
+  res.status(404).json({ error: 'Nicht gefunden.' })
 })
 
 const distDir = path.resolve('dist')
@@ -403,8 +416,10 @@ if (existsSync(distDir)) {
       },
     }),
   )
-  // every other URL is a page of the single page app
-  app.get('/{*path}', (_req, res) => {
+  // every other URL is a page of the single page app;
+  // a missing file (e.g. an old script after a deploy) gets a real 404
+  app.get('/{*path}', (req, res) => {
+    if (path.extname(req.path)) return res.status(404).send('Nicht gefunden')
     res.setHeader('Cache-Control', 'no-cache')
     res.sendFile(path.join(distDir, 'index.html'))
   })

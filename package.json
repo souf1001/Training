@@ -13,10 +13,12 @@
     "build": "tsc --noEmit && vite build",
     "start": "node --disable-warning=ExperimentalWarning server/index.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "reset-password": "node --disable-warning=ExperimentalWarning server/reset-password.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
+    "compression": "^1.8.2",
     "express": "^5.2.1",
     "lucide-react": "^1.48.0",
     "react": "^19.3.0",
@@ -24,6 +26,7 @@
     "react-router-dom": "^7.18.4"
   },
   "devDependencies": {
+    "@types/compression": "^1.8.1",
     "@types/express": "^5.0.6",
     "@types/node": "^22.20.4",
     "@types/react": "^19.3.0",

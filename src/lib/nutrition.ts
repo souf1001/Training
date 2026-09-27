@@ -1,7 +1,7 @@
 // Calories and macros. All formulas are well-known standards:
 // - BMR (Grundumsatz): Mifflin-St Jeor
-// - TDEE (Gesamtumsatz): BMR x everyday activity + training
-import type { DietStyle, Goal, NutritionTargets, Profile } from './types'
+// - TDEE (Gesamtverbrauch): BMR x everyday activity + training
+import type { DietStyle, Goal, NutritionTargets, Profile, WeeklyLoad } from './types'
 
 export function calcBmr(p: Pick<Profile, 'sex' | 'weightKg' | 'heightCm' | 'age'>): number {
   const base = 10 * p.weightKg + 6.25 * p.heightCm - 5 * p.age
@@ -17,10 +17,11 @@ function kcalPerMinute(met: number, weightKg: number) {
   return ((met - 1) * 3.5 * weightKg) / 200
 }
 
-export function calcTdee(p: Profile, cardioMinutesPerWeek = 0): number {
+// `load` is what the training plan really contains (see weeklyLoad in plan.ts)
+export function calcTdee(p: Profile, load: WeeklyLoad): number {
   const everyday = calcBmr(p) * ACTIVITY_FACTOR[p.activity]
-  const strengthPerWeek = p.trainingDays.length * p.sessionMinutes * kcalPerMinute(5, p.weightKg)
-  const cardioPerWeek = cardioMinutesPerWeek * kcalPerMinute(6, p.weightKg)
+  const strengthPerWeek = load.strengthSessions * p.sessionMinutes * kcalPerMinute(5, p.weightKg)
+  const cardioPerWeek = load.cardioMinutes * kcalPerMinute(6, p.weightKg)
   return Math.round(everyday + (strengthPerWeek + cardioPerWeek) / 7)
 }
 
@@ -47,9 +48,9 @@ const FAT_SHARE: Record<DietStyle, number> = {
   vegan: 0.28,
 }
 
-export function calcTargets(p: Profile, cardioMinutesPerWeek = 0): NutritionTargets {
+export function calcTargets(p: Profile, load: WeeklyLoad): NutritionTargets {
   const bmr = calcBmr(p)
-  const tdee = calcTdee(p, cardioMinutesPerWeek)
+  const tdee = calcTdee(p, load)
 
   // a deficit bigger than 750 kcal costs too much muscle and energy
   const change = Math.max(tdee * GOAL_ADJUST[p.goal], -750)
@@ -62,19 +63,18 @@ export function calcTargets(p: Profile, cardioMinutesPerWeek = 0): NutritionTarg
   const heightM = p.heightCm / 100
   const proteinWeight = Math.min(p.weightKg, 27 * heightM * heightM)
   const perKg = PROTEIN_PER_KG[p.goal] + (p.dietStyle === 'highProtein' ? 0.2 : 0)
-  const protein = Math.round(proteinWeight * perKg)
+  // protein never takes more than 40 % of the calories (matters for a very low own goal)
+  const protein = Math.round(Math.min(proteinWeight * perKg, (kcal * 0.4) / 4))
 
-  let fat: number
-  let carbs: number
-  if (p.dietStyle === 'keto') {
-    carbs = 30
-    fat = Math.round((kcal - protein * 4 - carbs * 4) / 9)
-  } else {
-    fat = Math.max(Math.round((kcal * FAT_SHARE[p.dietStyle]) / 9), Math.round(p.weightKg * 0.6))
-    carbs = Math.max(Math.round((kcal - protein * 4 - fat * 9) / 4), 0)
-  }
+  // Fat: the share of the diet style, at least 0.6 g/kg for hormones,
+  // but never more than the calories left after protein (and keto carbs).
+  const carbsFixed = p.dietStyle === 'keto' ? 30 : 0
+  const left = kcal - protein * 4 - carbsFixed * 4
+  const wantedFat = p.dietStyle === 'keto' ? left / 9 : Math.max((kcal * FAT_SHARE[p.dietStyle]) / 9, p.weightKg * 0.6)
+  const fat = Math.round(Math.max(0, Math.min(wantedFat, left / 9)))
+  const carbs = p.dietStyle === 'keto' ? carbsFixed : Math.max(Math.round((left - fat * 9) / 4), 0)
 
-  return { bmr, tdee, kcal, protein, carbs, fat: Math.max(fat, 0) }
+  return { bmr, tdee, kcal, protein, carbs, fat }
 }
 
 // Which diet style fits which goal, and why.

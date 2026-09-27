@@ -1,22 +1,17 @@
 // AI features in the browser. The API key is saved only on this device (localStorage).
 import { api } from './api'
 import { findProvider } from './aiProviders'
+import { readJson, writeJson } from './storage'
 import type { AiSettings, Macros, Profile } from './types'
 
 const STORAGE_KEY = 'forma.ai'
 
 export function loadAiSettings(): AiSettings | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? (JSON.parse(raw) as AiSettings) : null
-  } catch {
-    return null
-  }
+  return readJson<AiSettings>(STORAGE_KEY)
 }
 
 export function saveAiSettings(settings: AiSettings | null) {
-  if (settings) localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
-  else localStorage.removeItem(STORAGE_KEY)
+  writeJson(STORAGE_KEY, settings)
 }
 
 export function aiEnabled(): boolean {
@@ -32,6 +27,7 @@ export async function askAi(system: string, prompt: string, settings = loadAiSet
   if (provider?.api === 'custom') {
     const base = (settings.baseUrl || provider.baseUrl).replace(/\/$/, '')
     const res = await fetch(`${base}/chat/completions`, {
+      signal: AbortSignal.timeout(120_000),
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -44,6 +40,8 @@ export async function askAi(system: string, prompt: string, settings = loadAiSet
           { role: 'user', content: prompt },
         ],
       }),
+    }).catch(() => {
+      throw new Error('Dein eigener KI-Server ist nicht erreichbar. Läuft er, und ist CORS erlaubt?')
     })
     if (!res.ok) throw new Error(`Eigener Server antwortet mit Fehler ${res.status}`)
     const data = await res.json()
@@ -90,12 +88,24 @@ export async function estimateFood(text: string): Promise<EstimatedFood[]> {
   return items
 }
 
-// Models sometimes wrap JSON in ```json fences or add a sentence around it.
+// Models sometimes add a sentence, ```json fences or <think>…</think> around the JSON.
+// We try every "{" or "[" until one starts a valid JSON value.
 export function parseJson(text: string): unknown {
-  const start = text.indexOf('{')
-  const end = text.lastIndexOf('}')
-  if (start === -1 || end === -1) throw new Error('Die KI-Antwort war kein gültiges JSON.')
-  return JSON.parse(text.slice(start, end + 1))
+  const cleaned = text.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/```(json)?/g, '')
+  for (let start = 0; start < cleaned.length; start++) {
+    const char = cleaned[start]
+    if (char !== '{' && char !== '[') continue
+    const close = char === '{' ? '}' : ']'
+    for (let end = cleaned.lastIndexOf(close); end > start; end = cleaned.lastIndexOf(close, end - 1)) {
+      try {
+        const value = JSON.parse(cleaned.slice(start, end + 1).replace(/,\s*([}\]])/g, '$1'))
+        return Array.isArray(value) ? { items: value } : value
+      } catch {
+        // try a shorter piece
+      }
+    }
+  }
+  throw new Error('Die KI-Antwort konnte nicht gelesen werden. Versuch es noch einmal.')
 }
 
 // --- coach ----------------------------------------------------------------------------

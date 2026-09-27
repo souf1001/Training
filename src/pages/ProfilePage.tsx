@@ -1,88 +1,67 @@
 import { useState, type ReactNode } from 'react'
 import { ChevronRight, Download, LogOut, Share, Sparkles } from 'lucide-react'
-import { PageHeader, Sheet, formatNumber } from '../components/ui'
-import { Segmented } from '../components/fields'
+import { ErrorText, PageHeader, Sheet } from '../components/ui'
+import { DecimalInput, Segmented } from '../components/fields'
 import { questionById } from '../components/questions'
 import { AiSettingsSheet } from '../components/AiSettingsSheet'
-import { cardioMinutes, clearLocalData, useMe, type Theme } from '../state/app'
+import { changesPlan, clearLocalData, useMe } from '../state/app'
 import { api } from '../lib/api'
-import { calcTargets, DIET_STYLES } from '../lib/nutrition'
-import { ACTIVITY, CARDIO_LEVEL, EQUIPMENT_LABEL, EXPERIENCE, GOALS, SEX, WEEKDAYS_SHORT } from '../lib/labels'
+import { useAction } from '../lib/hooks'
+import { calcTargets } from '../lib/nutrition'
+import { weeklyLoad } from '../lib/plan'
+import { formatNumber } from '../lib/format'
 import { findProvider } from '../lib/aiProviders'
 import { loadAiSettings } from '../lib/ai'
-import type { Profile } from '../lib/types'
-
-// short text shown on the right side of each row
-function summary(id: string, p: Profile): string {
-  switch (id) {
-    case 'sex': return SEX[p.sex]
-    case 'age': return `${p.age} Jahre`
-    case 'height': return `${p.heightCm} cm`
-    case 'weight': return `${formatNumber(p.weightKg, 1)} kg`
-    case 'activity': return ACTIVITY[p.activity].label
-    case 'goal': return GOALS[p.goal].label
-    case 'experience': return EXPERIENCE[p.experience].label
-    case 'location': return p.location === 'gym' ? 'Fitnessstudio' : 'Zuhause'
-    case 'equipment': return p.equipment.length ? p.equipment.map((e) => EQUIPMENT_LABEL[e]).join(', ') : 'Nichts'
-    case 'days': return p.trainingDays.map((d) => WEEKDAYS_SHORT[d]).join(', ')
-    case 'duration': return `${p.sessionMinutes} Min.`
-    case 'cardio': return CARDIO_LEVEL[p.cardioLevel].label
-    case 'diet': return DIET_STYLES[p.dietStyle].label
-    default: return ''
-  }
-}
-
-// short row labels (the questions themselves are too long for a settings row)
-const LABELS: Record<string, string> = {
-  sex: 'Geschlecht',
-  age: 'Alter',
-  height: 'Größe',
-  weight: 'Gewicht',
-  activity: 'Alltag',
-  goal: 'Ziel',
-  experience: 'Erfahrung',
-  location: 'Trainingsort',
-  equipment: 'Equipment',
-  days: 'Trainingstage',
-  duration: 'Dauer',
-  cardio: 'Cardio',
-  diet: 'Ernährungsstil',
-}
+import { applyTheme } from '../lib/theme'
+import type { Theme } from '../lib/types'
 
 const BODY = ['sex', 'age', 'height', 'weight', 'activity']
 const TRAINING = ['goal', 'experience', 'location', 'equipment', 'days', 'duration', 'cardio']
 
+type SheetName = 'kcal' | 'ai' | 'install' | 'password' | 'delete'
+
 export function ProfilePage() {
   const { me, targets, logout, saveSettings } = useMe()
   const [editing, setEditing] = useState<string | null>(null)
-  const [sheet, setSheet] = useState<'kcal' | 'ai' | 'install' | 'password' | 'delete' | null>(null)
-  const ai = loadAiSettings()
+  const [sheet, setSheet] = useState<SheetName | null>(null)
+  const [aiSettings, setAiSettings] = useState(loadAiSettings)
   const p = me.profile
 
   const rows = (ids: string[]) =>
     ids
       .filter((id) => id !== 'equipment' || p.location === 'home')
-      .map((id) => <Row key={id} label={LABELS[id]} value={summary(id, p)} onClick={() => setEditing(id)} />)
+      .map((id) => {
+        const q = questionById(id)
+        return <Row key={id} label={q.label} value={q.summary(p)} onClick={() => setEditing(id)} />
+      })
+
+  function changeTheme(theme: Theme) {
+    applyTheme(theme) // right away, even if saving fails (e.g. offline)
+    saveSettings({ ...me.settings, theme }).catch(() => {})
+  }
 
   return (
     <div className="page">
-      <PageHeader title="Profil" eyebrow={me.email} />
+      <PageHeader title="Profil" />
+      <p className="muted small" style={{ marginTop: -8 }}>
+        {me.email}
+      </p>
 
       <Group title="Körper">{rows(BODY)}</Group>
       <Group title="Ziel & Training">{rows(TRAINING)}</Group>
       <Group title="Ernährung">
-        <Row label={LABELS.diet} value={summary('diet', p)} onClick={() => setEditing('diet')} />
+        {rows(['diet'])}
         <Row label="Kalorienziel" value={`${formatNumber(targets.kcal)} kcal${p.kcalOverride ? ' (eigenes)' : ''}`} onClick={() => setSheet('kcal')} />
       </Group>
 
       <Group title="KI-Modus">
         <Row
           label={
-            <span className="row" style={{ gap: 6 }}>
-              <Sparkles size={16} color="var(--accent)" /> KI-Anbieter
+            <span className="row tight">
+              <Sparkles size={16} color="var(--accent-text)" /> KI-Anbieter
             </span>
           }
-          value={ai?.apiKey || ai?.provider === 'custom' ? (findProvider(ai.provider)?.name ?? ai.provider) : 'Aus'}
+          value={aiSettings?.apiKey || aiSettings?.provider === 'custom' ? (findProvider(aiSettings.provider)?.name ?? aiSettings.provider) : 'Aus'}
           onClick={() => setSheet('ai')}
         />
       </Group>
@@ -91,12 +70,13 @@ export function ProfilePage() {
       </p>
 
       <Group title="App">
-        <div className="list-item" style={{ cursor: 'default' }}>
+        <div className="list-item">
           <span className="grow">Darstellung</span>
           <div style={{ width: 200 }}>
             <Segmented<Theme>
+              label="Darstellung"
               value={me.settings.theme ?? 'system'}
-              onChange={(theme) => saveSettings({ ...me.settings, theme })}
+              onChange={changeTheme}
               options={[
                 { value: 'system', label: 'Auto' },
                 { value: 'light', label: 'Hell' },
@@ -109,12 +89,12 @@ export function ProfilePage() {
       </Group>
 
       <Group title="Konto">
-        <a className="list-item" href="/api/export" download style={{ color: 'inherit' }}>
+        <a className="list-item" href="/api/export" download>
           <Download size={18} className="chev" />
           <span className="grow">Meine Daten exportieren</span>
         </a>
         <Row label="Passwort ändern" value="" onClick={() => setSheet('password')} />
-        <button className="list-item" onClick={logout}>
+        <button className="list-item" onClick={() => logout()}>
           <LogOut size={18} className="chev" />
           <span className="grow">Abmelden</span>
         </button>
@@ -125,7 +105,14 @@ export function ProfilePage() {
 
       {editing && <EditQuestion id={editing} onClose={() => setEditing(null)} />}
       {sheet === 'kcal' && <KcalSheet onClose={() => setSheet(null)} />}
-      {sheet === 'ai' && <AiSettingsSheet onClose={() => setSheet(null)} />}
+      {sheet === 'ai' && (
+        <AiSettingsSheet
+          onClose={() => {
+            setSheet(null)
+            setAiSettings(loadAiSettings())
+          }}
+        />
+      )}
       {sheet === 'install' && <InstallSheet onClose={() => setSheet(null)} />}
       {sheet === 'password' && <PasswordSheet onClose={() => setSheet(null)} />}
       {sheet === 'delete' && <DeleteSheet onClose={() => setSheet(null)} />}
@@ -135,7 +122,7 @@ export function ProfilePage() {
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="stack" style={{ gap: 8 }}>
+    <section className="stack tight">
       <div className="card-label" style={{ padding: '0 4px' }}>
         {title}
       </div>
@@ -159,25 +146,31 @@ function Row({ label, value, onClick }: { label: ReactNode; value: string; onCli
 function EditQuestion({ id, onClose }: { id: string; onClose: () => void }) {
   const { me, saveProfile } = useMe()
   const [profile, setProfile] = useState(me.profile)
-  const [busy, setBusy] = useState(false)
+  const action = useAction()
   const question = questionById(id)
   const valid = !question.valid || question.valid(profile)
 
   async function save() {
-    setBusy(true)
-    await saveProfile(profile)
-    onClose()
+    if (await action.run(() => saveProfile(profile))) onClose()
   }
 
   return (
-    <Sheet title={question.title} onClose={onClose}>
+    <Sheet
+      title={question.title}
+      onClose={onClose}
+      footer={
+        <div className="stack tight">
+          {changesPlan(me.profile, profile) && <p className="muted small">Dein Trainingsplan wird danach passend neu erstellt.</p>}
+          <ErrorText>{action.error}</ErrorText>
+          <button className="btn block" onClick={save} disabled={!valid || action.busy}>
+            Speichern
+          </button>
+        </div>
+      }
+    >
       <div className="stack">
         {question.hint && <p className="muted small">{question.hint}</p>}
         {question.render(profile, (changes) => setProfile({ ...profile, ...changes }))}
-        {TRAINING.includes(id) && <p className="muted small">Dein Trainingsplan wird danach passend neu erstellt.</p>}
-        <button className="btn block" onClick={save} disabled={!valid || busy}>
-          Speichern
-        </button>
       </div>
     </Sheet>
   )
@@ -185,35 +178,45 @@ function EditQuestion({ id, onClose }: { id: string; onClose: () => void }) {
 
 function KcalSheet({ onClose }: { onClose: () => void }) {
   const { me, targets, saveProfile } = useMe()
-  const calculated = calcTargets({ ...me.profile, kcalOverride: null }, cardioMinutes(me.plan))
-  const [value, setValue] = useState(String(me.profile.kcalOverride ?? calculated.kcal))
-  const kcal = Number(value)
+  const calculated = calcTargets({ ...me.profile, kcalOverride: null }, weeklyLoad(me.plan))
+  const [kcal, setKcal] = useState<number | null>(me.profile.kcalOverride ?? calculated.kcal)
+  const action = useAction()
 
   async function save(override: number | null) {
-    await saveProfile({ ...me.profile, kcalOverride: override })
-    onClose()
+    if (await action.run(() => saveProfile({ ...me.profile, kcalOverride: override }))) onClose()
   }
 
+  const valid = kcal != null && kcal >= 1000 && kcal <= 6000
+
   return (
-    <Sheet title="Kalorienziel" onClose={onClose}>
+    <Sheet
+      title="Kalorienziel"
+      onClose={onClose}
+      footer={
+        <div className="stack tight">
+          <ErrorText>{action.error}</ErrorText>
+          <button className="btn block" disabled={!valid || action.busy} onClick={() => save(kcal === calculated.kcal ? null : kcal)}>
+            Speichern
+          </button>
+          {me.profile.kcalOverride && (
+            <button className="btn ghost block" onClick={() => save(null)} disabled={action.busy}>
+              Berechneten Wert nutzen
+            </button>
+          )}
+        </div>
+      }
+    >
       <div className="stack">
         <p className="muted small">
           Berechnet für dein Ziel: <strong>{formatNumber(calculated.kcal)} kcal</strong> (Gesamtverbrauch {formatNumber(targets.tdee)} kcal). Du kannst
           einen eigenen Wert festlegen, die Makros passen sich an.
         </p>
         <div className="number-input" style={{ padding: '8px 0' }}>
-          <input type="number" inputMode="numeric" value={value} onChange={(e) => setValue(e.target.value)} aria-label="kcal" />
+          <DecimalInput className="" inputMode="numeric" value={kcal} onChange={setKcal} aria-label="Kalorienziel in kcal" />
           <span className="unit">kcal</span>
         </div>
-        {kcal > 0 && kcal < calculated.bmr && <p className="error">Das liegt unter deinem Grundumsatz. Auf Dauer ist das nicht empfehlenswert.</p>}
-        <button className="btn block" disabled={!(kcal >= 1000 && kcal <= 6000)} onClick={() => save(kcal === calculated.kcal ? null : kcal)}>
-          Speichern
-        </button>
-        {me.profile.kcalOverride && (
-          <button className="btn ghost block" onClick={() => save(null)}>
-            Berechneten Wert nutzen
-          </button>
-        )}
+        {!valid && <p className="muted small">Bitte zwischen 1.000 und 6.000 kcal.</p>}
+        {valid && kcal < calculated.bmr && <p className="error">Das liegt unter deinem Grundumsatz. Auf Dauer ist das nicht empfehlenswert.</p>}
       </div>
     </Sheet>
   )
@@ -229,7 +232,7 @@ function InstallSheet({ onClose }: { onClose: () => void }) {
           <ol className="steps">
             <li>
               <span>
-                Tippe unten auf <Share size={16} style={{ verticalAlign: -3 }} /> Teilen.
+                Tippe unten auf <Share size={16} style={{ verticalAlign: -3 }} aria-label="Teilen" /> Teilen.
               </span>
             </li>
             <li>Scrolle runter und tippe auf „Zum Home-Bildschirm“.</li>
@@ -252,26 +255,29 @@ function InstallSheet({ onClose }: { onClose: () => void }) {
 function PasswordSheet({ onClose }: { onClose: () => void }) {
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
-  const [message, setMessage] = useState('')
+  const action = useAction()
 
   async function save() {
-    try {
-      await api.put('/me/password', { current, next })
-      onClose()
-    } catch (err) {
-      setMessage((err as Error).message)
-    }
+    if (await action.run(() => api.put('/me/password', { current, next }))) onClose()
   }
 
   return (
-    <Sheet title="Passwort ändern" onClose={onClose}>
+    <Sheet
+      title="Passwort ändern"
+      onClose={onClose}
+      footer={
+        <div className="stack tight">
+          <ErrorText>{action.error}</ErrorText>
+          <button className="btn block" onClick={save} disabled={!current || next.length < 8 || action.busy}>
+            Speichern
+          </button>
+        </div>
+      }
+    >
       <div className="stack">
-        <input className="input" type="password" autoComplete="current-password" placeholder="Aktuelles Passwort" value={current} onChange={(e) => setCurrent(e.target.value)} />
-        <input className="input" type="password" autoComplete="new-password" placeholder="Neues Passwort (mind. 8 Zeichen)" value={next} onChange={(e) => setNext(e.target.value)} />
-        {message && <p className="error">{message}</p>}
-        <button className="btn block" onClick={save} disabled={!current || next.length < 8}>
-          Speichern
-        </button>
+        <input className="input" type="password" autoComplete="current-password" aria-label="Aktuelles Passwort" placeholder="Aktuelles Passwort" value={current} onChange={(e) => setCurrent(e.target.value)} />
+        <input className="input" type="password" autoComplete="new-password" aria-label="Neues Passwort" placeholder="Neues Passwort (mind. 8 Zeichen)" value={next} onChange={(e) => setNext(e.target.value)} />
+        <p className="muted small">Danach wirst du auf allen anderen Geräten abgemeldet.</p>
       </div>
     </Sheet>
   )
@@ -280,27 +286,32 @@ function PasswordSheet({ onClose }: { onClose: () => void }) {
 function DeleteSheet({ onClose }: { onClose: () => void }) {
   const { refresh } = useMe()
   const [password, setPassword] = useState('')
-  const [message, setMessage] = useState('')
+  const action = useAction()
 
   async function remove() {
-    try {
-      await api.delete('/me', { password })
+    const ok = await action.run(() => api.delete('/me', { password }))
+    if (ok) {
       clearLocalData()
       await refresh()
-    } catch (err) {
-      setMessage((err as Error).message)
     }
   }
 
   return (
-    <Sheet title="Konto löschen" onClose={onClose}>
+    <Sheet
+      title="Konto löschen"
+      onClose={onClose}
+      footer={
+        <div className="stack tight">
+          <ErrorText>{action.error}</ErrorText>
+          <button className="btn danger block" onClick={remove} disabled={!password || action.busy}>
+            Endgültig löschen
+          </button>
+        </div>
+      }
+    >
       <div className="stack">
         <p>Dein Konto und alle Daten (Plan, Trainings, Essen, Gewicht) werden endgültig gelöscht.</p>
-        <input className="input" type="password" autoComplete="current-password" placeholder="Passwort zur Bestätigung" value={password} onChange={(e) => setPassword(e.target.value)} />
-        {message && <p className="error">{message}</p>}
-        <button className="btn danger block" onClick={remove} disabled={!password}>
-          Endgültig löschen
-        </button>
+        <input className="input" type="password" autoComplete="current-password" aria-label="Passwort zur Bestätigung" placeholder="Passwort zur Bestätigung" value={password} onChange={(e) => setPassword(e.target.value)} />
       </div>
     </Sheet>
   )

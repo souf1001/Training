@@ -60,4 +60,6 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_workouts_user ON workouts(user_id, date);
   CREATE INDEX IF NOT EXISTS idx_food_user ON food_entries(user_id, eaten_at);
+  CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+  CREATE INDEX IF NOT EXISTS idx_weights_user ON weights(user_id, date);
 `)

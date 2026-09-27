@@ -14,7 +14,7 @@ export class AiError extends Error {
 function getProvider(id: string): AiProvider {
   const provider = findProvider(id)
   // "custom" servers are called from the browser, never from here
-  if (!provider || provider.api === 'custom') throw new AiError(400, 'Unbekannter Anbieter')
+  if (!provider || provider.api === 'custom') throw new AiError(400, 'Unbekannter Anbieter.')
   return provider
 }
 
@@ -62,8 +62,8 @@ async function completeAnthropic(model: string, apiKey: string, system: string, 
     if (response.stop_reason === 'refusal') throw new AiError(422, 'Die KI hat die Anfrage abgelehnt.')
     return response.content.map((block) => (block.type === 'text' ? block.text : '')).join('')
   } catch (error) {
-    if (error instanceof Anthropic.AuthenticationError) throw new AiError(401, 'API-Key ungültig')
-    if (error instanceof Anthropic.RateLimitError) throw new AiError(429, 'Zu viele Anfragen, bitte kurz warten')
+    if (error instanceof Anthropic.AuthenticationError) throw new AiError(401, 'API-Key ungültig.')
+    if (error instanceof Anthropic.RateLimitError) throw new AiError(429, 'Zu viele Anfragen, bitte kurz warten.')
     if (error instanceof Anthropic.APIError) throw new AiError(error.status ?? 502, error.message)
     throw error
   }
@@ -79,7 +79,7 @@ export async function listModels(providerId: string, apiKey: string): Promise<st
     try {
       for await (const model of client.models.list()) ids.push(model.id)
     } catch (error) {
-      if (error instanceof Anthropic.AuthenticationError) throw new AiError(401, 'API-Key ungültig')
+      if (error instanceof Anthropic.AuthenticationError) throw new AiError(401, 'API-Key ungültig.')
       throw error
     }
     return ids
@@ -95,8 +95,8 @@ export async function listModels(providerId: string, apiKey: string): Promise<st
 }
 
 async function readError(res: Response): Promise<string> {
-  if (res.status === 401 || res.status === 403) return 'API-Key ungültig oder ohne Berechtigung'
-  if (res.status === 429) return 'Limit erreicht, bitte kurz warten'
+  if (res.status === 401 || res.status === 403) return 'API-Key ungültig oder ohne Berechtigung.'
+  if (res.status === 429) return 'Limit beim KI-Anbieter erreicht, bitte kurz warten.'
   try {
     const body = (await res.json()) as { error?: { message?: string } | string }
     const message = typeof body.error === 'string' ? body.error : body.error?.message

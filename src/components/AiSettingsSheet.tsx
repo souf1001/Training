@@ -93,7 +93,7 @@ export function AiSettingsSheet({ onClose }: { onClose: () => void }) {
             className="input"
             type="password"
             autoComplete="off"
-            placeholder="sk-…"
+            placeholder={provider.keyHint}
             value={settings.apiKey}
             onChange={(e) => setSettings({ ...settings, apiKey: e.target.value.trim() })}
           />

@@ -1,5 +1,5 @@
 // Small building blocks used on every page.
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ChevronLeft, Lightbulb, X } from 'lucide-react'
 
@@ -27,34 +27,48 @@ export function BackBar({ to, action }: { to?: string; action?: ReactNode }) {
   )
 }
 
-export function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  // Escape closes the sheet, and the page behind it must not scroll.
+// Bottom sheet dialog. `footer` (e.g. the save button) stays visible while the content scrolls.
+export function Sheet({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
+  const titleId = useId()
+  const sheetRef = useRef<HTMLDivElement>(null)
   // The ref keeps the effect from re-running when the parent passes a new onClose function.
   const closeRef = useRef(onClose)
   useEffect(() => {
     closeRef.current = onClose
   })
+
+  // Escape closes the sheet, the page behind it must not scroll,
+  // and keyboard focus moves into the sheet and back afterwards.
   useEffect(() => {
+    const previousFocus = document.activeElement as HTMLElement | null
+    sheetRef.current?.focus()
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && closeRef.current()
+    // keep the focused field above the phone keyboard
+    const onFocus = (e: FocusEvent) => {
+      const target = e.target as HTMLElement
+      if (target.matches('input, textarea')) setTimeout(() => target.scrollIntoView({ block: 'center', behavior: 'smooth' }), 300)
+    }
+    sheetRef.current?.addEventListener('focusin', onFocus)
     document.addEventListener('keydown', onKey)
     document.body.style.overflow = 'hidden'
     return () => {
       document.removeEventListener('keydown', onKey)
       document.body.style.overflow = ''
+      previousFocus?.focus()
     }
   }, [])
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
-      <div className="sheet" role="dialog" aria-label={title} onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-handle" />
+      <div className="sheet" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} ref={sheetRef} onClick={(e) => e.stopPropagation()}>
         <div className="sheet-header">
-          <h2>{title}</h2>
-          <button className="icon-btn filled" onClick={onClose} aria-label="Schließen" style={{ width: 32, height: 32, borderRadius: 16 }}>
+          <h2 id={titleId}>{title}</h2>
+          <button className="icon-btn filled sheet-close" onClick={onClose} aria-label="Schließen">
             <X size={18} />
           </button>
         </div>
         {children}
+        {footer && <div className="sheet-footer">{footer}</div>}
       </div>
     </div>
   )
@@ -73,10 +87,19 @@ export function Spinner() {
   return <div className="spinner" role="status" aria-label="Lädt" />
 }
 
+export function ErrorText({ children }: { children: ReactNode }) {
+  if (!children) return null
+  return (
+    <p className="error" role="alert">
+      {children}
+    </p>
+  )
+}
+
 export function ProgressBar({ value, max, color }: { value: number; max: number; color?: string }) {
   const percent = max > 0 ? Math.min(100, (value / max) * 100) : 0
   return (
-    <div className="progress">
+    <div className="progress" role="progressbar" aria-valuenow={Math.round(value)} aria-valuemin={0} aria-valuemax={Math.round(max)}>
       <div style={{ width: `${percent}%`, background: color }} />
     </div>
   )
@@ -105,8 +128,8 @@ export function Ring({ value, max, size = 128, children }: { value: number; max:
   const over = value > max
 
   return (
-    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
-      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+    <div className="ring" style={{ width: size, height: size }}>
+      <svg width={size} height={size} aria-hidden="true">
         <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="var(--fill)" strokeWidth={stroke} />
         <circle
           cx={size / 2}
@@ -118,16 +141,9 @@ export function Ring({ value, max, size = 128, children }: { value: number; max:
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={circumference * (1 - percent)}
-          style={{ transition: 'stroke-dashoffset 0.5s' }}
         />
       </svg>
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-        {children}
-      </div>
+      <div className="ring-center">{children}</div>
     </div>
   )
-}
-
-export function formatNumber(n: number, digits = 0): string {
-  return n.toLocaleString('de-DE', { maximumFractionDigits: digits })
 }

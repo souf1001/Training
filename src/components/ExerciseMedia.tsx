@@ -6,8 +6,8 @@ export function ExerciseMedia({ exercise }: { exercise: Exercise }) {
   const base = `/exercises/${exercise.image}`
   return (
     <div className="exercise-media">
-      <img src={`${base}/0.jpg`} alt={`${exercise.name}: Startposition`} />
-      <img src={`${base}/1.jpg`} alt={`${exercise.name}: Endposition`} className="frame-2" />
+      <img src={`${base}/0.webp`} alt={`${exercise.name}: Startposition`} />
+      <img src={`${base}/1.webp`} alt={`${exercise.name}: Endposition`} className="frame-2" />
     </div>
   )
 }
@@ -15,7 +15,7 @@ export function ExerciseMedia({ exercise }: { exercise: Exercise }) {
 export function ExerciseThumb({ exercise }: { exercise: Exercise }) {
   return (
     <div className="thumb">
-      <img src={`/exercises/${exercise.image}/0.jpg`} alt="" loading="lazy" />
+      <img src={`/exercises/${exercise.image}/thumb.webp`} alt="" loading="lazy" />
     </div>
   )
 }
