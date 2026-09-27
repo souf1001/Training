@@ -120,7 +120,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const logout = useCallback(async () => {
-    await api.post('/auth/logout')
+    await api.post('/auth/logout').catch(() => {})
+    clearLocalData()
     setMe(null)
   }, [])
 
@@ -144,6 +145,14 @@ export function useMe() {
   const state = useApp()
   if (!state.me || !state.targets) throw new Error('useMe needs a logged-in user')
   return { ...state, me: state.me, targets: state.targets }
+}
+
+// Removes everything this app stored on the device (AI key, running workout, draft),
+// so the next person on a shared phone doesn't get it.
+export function clearLocalData() {
+  Object.keys(localStorage)
+    .filter((key) => key.startsWith('forma.'))
+    .forEach((key) => localStorage.removeItem(key))
 }
 
 // --- questionnaire draft (before registration) -------------------------------------

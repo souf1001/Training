@@ -1,5 +1,5 @@
 // Small building blocks used on every page.
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ChevronLeft, Lightbulb, X } from 'lucide-react'
 
@@ -28,16 +28,21 @@ export function BackBar({ to, action }: { to?: string; action?: ReactNode }) {
 }
 
 export function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  // Escape closes the sheet, and the page behind it must not scroll
+  // Escape closes the sheet, and the page behind it must not scroll.
+  // The ref keeps the effect from re-running when the parent passes a new onClose function.
+  const closeRef = useRef(onClose)
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    closeRef.current = onClose
+  })
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && closeRef.current()
     document.addEventListener('keydown', onKey)
     document.body.style.overflow = 'hidden'
     return () => {
       document.removeEventListener('keydown', onKey)
       document.body.style.overflow = ''
     }
-  }, [onClose])
+  }, [])
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>

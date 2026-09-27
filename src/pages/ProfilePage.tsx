@@ -4,7 +4,7 @@ import { PageHeader, Sheet, formatNumber } from '../components/ui'
 import { Segmented } from '../components/fields'
 import { questionById } from '../components/questions'
 import { AiSettingsSheet } from '../components/AiSettingsSheet'
-import { cardioMinutes, useMe, type Theme } from '../state/app'
+import { cardioMinutes, clearLocalData, useMe, type Theme } from '../state/app'
 import { api } from '../lib/api'
 import { calcTargets, DIET_STYLES } from '../lib/nutrition'
 import { ACTIVITY, CARDIO_LEVEL, EQUIPMENT_LABEL, EXPERIENCE, GOALS, SEX, WEEKDAYS_SHORT } from '../lib/labels'
@@ -285,6 +285,7 @@ function DeleteSheet({ onClose }: { onClose: () => void }) {
   async function remove() {
     try {
       await api.delete('/me', { password })
+      clearLocalData()
       await refresh()
     } catch (err) {
       setMessage((err as Error).message)

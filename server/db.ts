@@ -12,6 +12,7 @@ export const db = new DatabaseSync(path.join(dataDir, 'forma.db'))
 db.exec(`
   PRAGMA journal_mode = WAL;
   PRAGMA foreign_keys = ON;
+  PRAGMA secure_delete = ON; -- deleted accounts are really overwritten on disk
 
   CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY,

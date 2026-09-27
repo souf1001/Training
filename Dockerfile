@@ -15,7 +15,10 @@ RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 COPY server ./server
 COPY src/lib ./src/lib
-EXPOSE 3000
 # the SQLite database lives in /data, mount a volume there so it survives restarts
+RUN mkdir -p /data && chown node:node /data
 VOLUME /data
-CMD ["npm", "start"]
+# don't run as root
+USER node
+EXPOSE 3000
+CMD ["node", "--disable-warning=ExperimentalWarning", "server/index.ts"]

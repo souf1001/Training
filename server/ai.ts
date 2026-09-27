@@ -38,7 +38,7 @@ export async function complete(
         { role: 'user', content: prompt },
       ],
     }),
-    signal: AbortSignal.timeout(90_000),
+    signal: AbortSignal.timeout(60_000),
   })
   if (!res.ok) throw new AiError(res.status, await readError(res))
 
@@ -47,7 +47,7 @@ export async function complete(
 }
 
 async function completeAnthropic(model: string, apiKey: string, system: string, prompt: string) {
-  const client = new Anthropic({ apiKey, timeout: 90_000, maxRetries: 1 })
+  const client = new Anthropic({ apiKey, timeout: 60_000, maxRetries: 0 })
   // Opus 5 and Fable 5 can decline a request; "fallbacks" lets the API retry
   // on a fitting model instead of returning nothing.
   const canFallback = model.startsWith('claude-opus-5') || model.startsWith('claude-fable-5')
@@ -74,7 +74,7 @@ export async function listModels(providerId: string, apiKey: string): Promise<st
   const provider = getProvider(providerId)
 
   if (provider.api === 'anthropic') {
-    const client = new Anthropic({ apiKey, timeout: 30_000 })
+    const client = new Anthropic({ apiKey, timeout: 30_000, maxRetries: 0 })
     const ids: string[] = []
     try {
       for await (const model of client.models.list()) ids.push(model.id)

@@ -4,74 +4,130 @@ import path from 'node:path'
 import { existsSync } from 'node:fs'
 import { db } from './db.ts'
 import {
+  COOKIE_NAME,
+  DUMMY_HASH,
   hashPassword,
   checkPassword,
   startSession,
   endSession,
+  endAllSessions,
   requireUser,
-  tooManyAttempts,
-  recordFailedAttempt,
-  clearAttempts,
+  rateLimit,
+  tooManyFailedLogins,
+  recordFailedLogin,
+  clearFailedLogins,
 } from './auth.ts'
 import { complete, listModels, AiError } from './ai.ts'
 
 const app = express()
-app.set('trust proxy', 1) // we usually run behind the hosting provider's proxy
-app.use(express.json({ limit: '1mb' }))
+app.set('trust proxy', 1) // we run behind the hosting provider's proxy (HTTPS)
+app.disable('x-powered-by')
+app.use(express.json({ limit: '200kb' }))
+
+// Security headers: no framing (clickjacking), no MIME sniffing, and a
+// Content Security Policy that only allows our own scripts.
+app.use((req, res, next) => {
+  res.setHeader(
+    'Content-Security-Policy',
+    [
+      "default-src 'self'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data:",
+      // Open Food Facts and a user's own AI server are called straight from the browser
+      "connect-src 'self' https: http://localhost:* http://127.0.0.1:*",
+      "object-src 'none'",
+      "base-uri 'none'",
+      "form-action 'self'",
+      "frame-ancestors 'none'",
+    ].join('; '),
+  )
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('X-Frame-Options', 'DENY')
+  res.setHeader('Referrer-Policy', 'no-referrer')
+  res.setHeader('Permissions-Policy', 'microphone=(self), camera=(), geolocation=()')
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+  }
+  if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store')
+  next()
+})
 
 const toJson = (value: unknown) => (value === undefined ? null : JSON.stringify(value))
 const fromJson = (value: unknown) => (typeof value === 'string' ? JSON.parse(value) : null)
+const isPassword = (value: unknown): value is string => typeof value === 'string' && value.length >= 8 && value.length <= 200
+const isIsoDate = (value: unknown): value is string =>
+  typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})?$/.test(value)
+
+// Limits per user, so nobody can fill up the disk.
+const MAX_JSON_FIELD = 100_000 // profile, plan, settings, one workout (characters)
+const MAX_FOOD_ENTRIES = 50_000
+const MAX_WORKOUTS = 10_000
+const tooBig = (value: unknown) => (toJson(value)?.length ?? 0) > MAX_JSON_FIELD
+
+function countRows(table: 'food_entries' | 'workouts', userId: number): number {
+  return (db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE user_id = ?`).get(userId) as { n: number }).n
+}
 
 // --- account -----------------------------------------------------------------
 
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', rateLimit('register', 10, 60 * 60 * 1000), async (req, res) => {
   const { email, password, profile, plan } = req.body ?? {}
   const cleanEmail = String(email ?? '').trim().toLowerCase()
 
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail) || cleanEmail.length > 200) {
     return res.status(400).json({ error: 'Bitte gib eine gültige E-Mail-Adresse ein.' })
   }
-  if (String(password ?? '').length < 8) {
+  if (!isPassword(password)) {
     return res.status(400).json({ error: 'Das Passwort braucht mindestens 8 Zeichen.' })
+  }
+  if (tooBig(profile) || tooBig(plan)) {
+    return res.status(400).json({ error: 'Ungültige Daten' })
   }
   if (db.prepare('SELECT id FROM users WHERE email = ?').get(cleanEmail)) {
     return res.status(409).json({ error: 'Diese E-Mail ist schon registriert.' })
   }
 
   // profile and plan come from the questionnaire the user filled out before registering
-  const result = db
-    .prepare('INSERT INTO users (email, password_hash, profile, plan, settings) VALUES (?, ?, ?, ?, ?)')
-    .run(cleanEmail, hashPassword(password), toJson(profile), toJson(plan), '{}')
-  const userId = Number(result.lastInsertRowid)
-
-  if (profile?.weightKg) {
-    db.prepare('INSERT INTO weights (user_id, date, kg) VALUES (?, ?, ?)').run(
-      userId,
-      new Date().toISOString().slice(0, 10),
-      profile.weightKg,
-    )
+  const passwordHash = await hashPassword(password)
+  const kg = Number(profile?.weightKg)
+  db.exec('BEGIN')
+  try {
+    const result = db
+      .prepare('INSERT INTO users (email, password_hash, profile, plan, settings) VALUES (?, ?, ?, ?, ?)')
+      .run(cleanEmail, passwordHash, toJson(profile), toJson(plan), '{}')
+    const userId = Number(result.lastInsertRowid)
+    if (kg > 20 && kg < 400) {
+      db.prepare('INSERT INTO weights (user_id, date, kg) VALUES (?, ?, ?)').run(userId, new Date().toISOString().slice(0, 10), kg)
+    }
+    db.exec('COMMIT')
+    startSession(res, userId)
+    res.status(201).json({ ok: true })
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
   }
-  startSession(res, userId)
-  res.status(201).json({ ok: true })
 })
 
-app.post('/api/auth/login', (req, res) => {
-  const email = String(req.body?.email ?? '').trim().toLowerCase()
-  const password = String(req.body?.password ?? '')
-  const key = `${req.ip}:${email}`
+app.post('/api/auth/login', rateLimit('login', 30, 15 * 60 * 1000), async (req, res) => {
+  const email = String(req.body?.email ?? '').trim().toLowerCase().slice(0, 200)
+  const password = String(req.body?.password ?? '').slice(0, 200)
 
-  if (tooManyAttempts(key)) {
+  if (tooManyFailedLogins(email)) {
     return res.status(429).json({ error: 'Zu viele Versuche. Bitte warte 15 Minuten.' })
   }
   const user = db.prepare('SELECT id, password_hash FROM users WHERE email = ?').get(email) as
     | { id: number; password_hash: string }
     | undefined
 
-  if (!user || !checkPassword(password, user.password_hash)) {
-    recordFailedAttempt(key)
+  // always hash, so the answer takes equally long for unknown emails
+  const ok = await checkPassword(password, user?.password_hash ?? DUMMY_HASH)
+  if (!user || !ok) {
+    recordFailedLogin(email)
     return res.status(401).json({ error: 'E-Mail oder Passwort ist falsch.' })
   }
-  clearAttempts(key)
+  clearFailedLogins(email)
+  endSession(req, res) // drop an old session of this browser
   startSession(res, user.id)
   res.json({ ok: true })
 })
@@ -95,39 +151,41 @@ app.get('/api/me', requireUser, (req, res) => {
 })
 
 app.put('/api/me', requireUser, (req, res) => {
-  for (const field of ['profile', 'plan', 'settings'] as const) {
-    if (req.body?.[field] !== undefined) {
-      db.prepare(`UPDATE users SET ${field} = ? WHERE id = ?`).run(toJson(req.body[field]), req.userId)
-    }
+  // only these three columns can be changed here (the names are fixed, never from the request)
+  const fields = (['profile', 'plan', 'settings'] as const).filter((f) => req.body?.[f] !== undefined)
+  if (fields.some((f) => tooBig(req.body[f]))) {
+    return res.status(400).json({ error: 'Daten zu groß' })
+  }
+  for (const field of fields) {
+    db.prepare(`UPDATE users SET ${field} = ? WHERE id = ?`).run(toJson(req.body[field]), req.userId)
   }
   res.json({ ok: true })
 })
 
-app.put('/api/me/password', requireUser, (req, res) => {
+app.put('/api/me/password', requireUser, rateLimit('password', 10, 15 * 60 * 1000), async (req, res) => {
   const { current, next } = req.body ?? {}
-  const user = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.userId) as {
-    password_hash: string
-  }
-  if (!checkPassword(String(current ?? ''), user.password_hash)) {
+  const user = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.userId) as { password_hash: string }
+  if (!(await checkPassword(String(current ?? '').slice(0, 200), user.password_hash))) {
     return res.status(401).json({ error: 'Das aktuelle Passwort ist falsch.' })
   }
-  if (String(next ?? '').length < 8) {
+  if (!isPassword(next)) {
     return res.status(400).json({ error: 'Das neue Passwort braucht mindestens 8 Zeichen.' })
   }
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(next), req.userId)
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(await hashPassword(next), req.userId)
+  // log out all other devices, this one gets a fresh session
+  endAllSessions(req.userId)
+  startSession(res, req.userId)
   res.json({ ok: true })
 })
 
-app.delete('/api/me', requireUser, (req, res) => {
-  const user = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.userId) as {
-    password_hash: string
-  }
-  if (!checkPassword(String(req.body?.password ?? ''), user.password_hash)) {
+app.delete('/api/me', requireUser, rateLimit('delete', 10, 15 * 60 * 1000), async (req, res) => {
+  const user = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.userId) as { password_hash: string }
+  if (!(await checkPassword(String(req.body?.password ?? '').slice(0, 200), user.password_hash))) {
     return res.status(401).json({ error: 'Das Passwort ist falsch.' })
   }
   // ON DELETE CASCADE removes sessions, workouts, food and weights too
   db.prepare('DELETE FROM users WHERE id = ?').run(req.userId)
-  res.clearCookie('forma_session')
+  res.clearCookie(COOKIE_NAME)
   res.json({ ok: true })
 })
 
@@ -141,8 +199,8 @@ app.get('/api/export', requireUser, (req, res) => {
     profile: fromJson(user.profile),
     plan: fromJson(user.plan),
     settings: fromJson(user.settings),
-    workouts: listWorkouts(req.userId, 100000),
-    food: db.prepare('SELECT * FROM food_entries WHERE user_id = ? ORDER BY eaten_at').all(req.userId),
+    workouts: listWorkouts(req.userId, MAX_WORKOUTS),
+    food: db.prepare('SELECT eaten_at AS eatenAt, name, amount, kcal, protein, carbs, fat, source FROM food_entries WHERE user_id = ? ORDER BY eaten_at').all(req.userId),
     weights: db.prepare('SELECT date, kg FROM weights WHERE user_id = ? ORDER BY date').all(req.userId),
   })
 })
@@ -157,13 +215,17 @@ function listWorkouts(userId: number, limit: number) {
 }
 
 app.get('/api/workouts', requireUser, (req, res) => {
-  res.json(listWorkouts(req.userId, Number(req.query.limit) || 200))
+  const limit = Math.min(Math.max(Math.trunc(Number(req.query.limit)) || 200, 1), 1000)
+  res.json(listWorkouts(req.userId, limit))
 })
 
 app.post('/api/workouts', requireUser, (req, res) => {
   const workout = req.body
-  if (!workout?.date || !Array.isArray(workout.exercises)) {
+  if (!isIsoDate(workout?.date) || !Array.isArray(workout.exercises) || tooBig(workout)) {
     return res.status(400).json({ error: 'Ungültiges Training' })
+  }
+  if (countRows('workouts', req.userId) >= MAX_WORKOUTS) {
+    return res.status(403).json({ error: 'Speicherlimit erreicht' })
   }
   delete workout.id
   const result = db
@@ -182,9 +244,9 @@ app.delete('/api/workouts/:id', requireUser, (req, res) => {
 const FOOD_COLUMNS = 'id, eaten_at AS eatenAt, name, amount, kcal, protein, carbs, fat, source'
 
 function cleanFood(input: Record<string, unknown>) {
-  const number = (value: unknown) => Math.max(0, Math.round(Number(value) * 10) / 10 || 0)
+  const number = (value: unknown) => Math.min(Math.max(0, Math.round(Number(value) * 10) / 10 || 0), 20_000)
   return {
-    eatenAt: String(input.eatenAt ?? new Date().toISOString()),
+    eatenAt: isIsoDate(input.eatenAt) ? input.eatenAt : new Date().toISOString(),
     name: String(input.name ?? '').slice(0, 200) || 'Essen',
     amount: String(input.amount ?? '').slice(0, 100),
     kcal: number(input.kcal),
@@ -195,35 +257,53 @@ function cleanFood(input: Record<string, unknown>) {
   }
 }
 
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
+
 app.get('/api/food', requireUser, (req, res) => {
   const from = String(req.query.from ?? '0000')
   const to = String(req.query.to ?? '9999')
   res.json(
     db
-      .prepare(`SELECT ${FOOD_COLUMNS} FROM food_entries WHERE user_id = ? AND eaten_at >= ? AND eaten_at < ? ORDER BY eaten_at`)
+      .prepare(`SELECT ${FOOD_COLUMNS} FROM food_entries WHERE user_id = ? AND eaten_at >= ? AND eaten_at < ? ORDER BY eaten_at LIMIT 5000`)
       .all(req.userId, from, to),
   )
 })
 
-// accepts one entry or a list of entries
+// accepts one entry or a list of up to 50 entries (one meal)
 app.post('/api/food', requireUser, (req, res) => {
-  const items: Record<string, unknown>[] = Array.isArray(req.body) ? req.body : [req.body]
+  const items: unknown[] = Array.isArray(req.body) ? req.body : [req.body]
+  if (items.length === 0 || items.length > 50 || !items.every(isObject)) {
+    return res.status(400).json({ error: 'Ungültige Einträge' })
+  }
+  if (countRows('food_entries', req.userId) + items.length > MAX_FOOD_ENTRIES) {
+    return res.status(403).json({ error: 'Speicherlimit erreicht' })
+  }
   const insert = db.prepare(
     'INSERT INTO food_entries (user_id, eaten_at, name, amount, kcal, protein, carbs, fat, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
   )
-  const saved = items.map((item) => {
-    const food = cleanFood(item)
-    const result = insert.run(req.userId, food.eatenAt, food.name, food.amount, food.kcal, food.protein, food.carbs, food.fat, food.source)
-    return { ...food, id: Number(result.lastInsertRowid) }
-  })
-  res.status(201).json(saved)
+  // one transaction: all entries are saved, or none
+  db.exec('BEGIN')
+  try {
+    const saved = items.map((item) => {
+      const food = cleanFood(item)
+      const result = insert.run(req.userId, food.eatenAt, food.name, food.amount, food.kcal, food.protein, food.carbs, food.fat, food.source)
+      return { ...food, id: Number(result.lastInsertRowid) }
+    })
+    db.exec('COMMIT')
+    res.status(201).json(saved)
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
 })
 
 app.put('/api/food/:id', requireUser, (req, res) => {
-  const food = cleanFood(req.body ?? {})
-  db.prepare(
-    'UPDATE food_entries SET eaten_at = ?, name = ?, amount = ?, kcal = ?, protein = ?, carbs = ?, fat = ?, source = ? WHERE id = ? AND user_id = ?',
-  ).run(food.eatenAt, food.name, food.amount, food.kcal, food.protein, food.carbs, food.fat, food.source, Number(req.params.id), req.userId)
+  if (!isObject(req.body)) return res.status(400).json({ error: 'Ungültiger Eintrag' })
+  const food = cleanFood(req.body)
+  const result = db
+    .prepare('UPDATE food_entries SET eaten_at = ?, name = ?, amount = ?, kcal = ?, protein = ?, carbs = ?, fat = ?, source = ? WHERE id = ? AND user_id = ?')
+    .run(food.eatenAt, food.name, food.amount, food.kcal, food.protein, food.carbs, food.fat, food.source, Number(req.params.id), req.userId)
+  if (result.changes === 0) return res.status(404).json({ error: 'Nicht gefunden' })
   res.json({ ...food, id: Number(req.params.id) })
 })
 
@@ -257,21 +337,38 @@ app.delete('/api/weights/:id', requireUser, (req, res) => {
 })
 
 // --- AI ------------------------------------------------------------------------
+// Limited per user, so the server can't be misused as a free relay.
 
-app.post('/api/ai/complete', requireUser, async (req, res) => {
+const byUser = (req: express.Request) => String(req.userId)
+
+function validAiRequest(body: Record<string, unknown> | undefined): boolean {
+  const { provider, model, apiKey } = body ?? {}
+  return (
+    typeof provider === 'string' &&
+    typeof apiKey === 'string' &&
+    apiKey.length > 0 &&
+    apiKey.length <= 300 &&
+    /^[\x21-\x7e]+$/.test(apiKey) && // printable characters only
+    (model === undefined || (typeof model === 'string' && model.length <= 200))
+  )
+}
+
+app.post('/api/ai/complete', requireUser, rateLimit('ai', 30, 60 * 1000, byUser), async (req, res) => {
   const { provider, model, apiKey, system, prompt } = req.body ?? {}
-  if (!apiKey || !model || !prompt) return res.status(400).json({ error: 'API-Key, Modell und Text sind nötig.' })
+  if (!validAiRequest(req.body) || !model || !prompt) {
+    return res.status(400).json({ error: 'API-Key, Modell und Text sind nötig.' })
+  }
   try {
-    const text = await complete(provider, model, apiKey, String(system ?? ''), String(prompt).slice(0, 4000))
+    const text = await complete(provider, model, apiKey, String(system ?? '').slice(0, 8000), String(prompt).slice(0, 4000))
     res.json({ text })
   } catch (error) {
     sendAiError(res, error)
   }
 })
 
-app.post('/api/ai/models', requireUser, async (req, res) => {
+app.post('/api/ai/models', requireUser, rateLimit('ai-models', 20, 60 * 60 * 1000, byUser), async (req, res) => {
   const { provider, apiKey } = req.body ?? {}
-  if (!apiKey) return res.status(400).json({ error: 'Bitte zuerst einen API-Key eintragen.' })
+  if (!validAiRequest(req.body)) return res.status(400).json({ error: 'Bitte zuerst einen gültigen API-Key eintragen.' })
   try {
     res.json({ models: await listModels(provider, apiKey) })
   } catch (error) {
@@ -281,7 +378,8 @@ app.post('/api/ai/models', requireUser, async (req, res) => {
 
 function sendAiError(res: express.Response, error: unknown) {
   if (error instanceof AiError) return res.status(error.status).json({ error: error.message })
-  console.error(error)
+  // only the error type: the error message could contain the API key
+  console.error('AI request failed:', (error as Error)?.name)
   res.status(502).json({ error: 'Der KI-Anbieter ist gerade nicht erreichbar.' })
 }
 
@@ -293,9 +391,23 @@ app.use('/api', (_req, res) => {
 
 const distDir = path.resolve('dist')
 if (existsSync(distDir)) {
-  app.use(express.static(distDir, { index: false, maxAge: '1h' }))
+  app.use(
+    express.static(distDir, {
+      index: false,
+      setHeaders(res, file) {
+        // file names in assets/ contain a hash, so they can be cached forever;
+        // everything else (index.html, sw.js, manifest) must be checked on every visit
+        if (file.includes(`${path.sep}assets${path.sep}`)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+        else if (file.includes(`${path.sep}exercises${path.sep}`)) res.setHeader('Cache-Control', 'public, max-age=604800')
+        else res.setHeader('Cache-Control', 'no-cache')
+      },
+    }),
+  )
   // every other URL is a page of the single page app
-  app.get('/{*path}', (_req, res) => res.sendFile(path.join(distDir, 'index.html')))
+  app.get('/{*path}', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache')
+    res.sendFile(path.join(distDir, 'index.html'))
+  })
 }
 
 const port = Number(process.env.PORT ?? 3000)
