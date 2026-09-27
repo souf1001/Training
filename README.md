@@ -115,12 +115,10 @@ Falls du Git noch nicht hast, installiere es von https://git-scm.com.
 ```bash
 git clone https://github.com/souf1001/Training.git
 cd Training
-git checkout claude/new-session-sys9gc
 ```
 
 - `git clone …` lädt das Projekt in einen neuen Ordner `Training`.
 - `cd Training` wechselt in diesen Ordner.
-- `git checkout …` wechselt auf den Branch mit der App.
 
 ### Schritt 3: Abhängigkeiten installieren
 
@@ -193,7 +191,7 @@ Im Projekt liegt ein fertiges `Dockerfile`. Damit läuft die App bei fast jedem 
 
 1. Erstelle ein Konto auf https://railway.app (Login mit GitHub).
 2. Klicke auf **New Project**, dann **Deploy from GitHub repo**, und wähl `souf1001/Training`.
-3. Unter **Settings** wählst du als Branch `claude/new-session-sys9gc`. Railway erkennt das `Dockerfile` automatisch.
+3. Unter **Settings** wählst du als Branch `main`. Railway erkennt das `Dockerfile` automatisch.
 4. Lege ein Volume an: Rechtsklick auf den Service, dann **Attach Volume**, Mount Path: `/data`.
 5. Unter **Variables** fügst du hinzu:
    - `NODE_ENV` = `production`
