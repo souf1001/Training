@@ -16,11 +16,12 @@ Forma ist eine Web-App (PWA) für iPhone und Android. Man öffnet sie im Browser
 - **Hell- und Dunkelmodus**, Kontraste nach WCAG AA.
 - **Funktioniert offline:** Ist die App einmal geöffnet, startet sie auch ohne Internet (z. B. im Gym-Keller) mit den zuletzt geladenen Daten.
 - **Sicherheit:**
-  - Passwörter werden mit scrypt gehasht, Login-Sitzungen über HttpOnly-Cookies verwaltet.
+  - Passwörter werden mit PBKDF2-SHA256 gehasht, Login-Sitzungen über HttpOnly-Cookies verwaltet.
   - Login, Registrierung und die KI-Weiterleitung sind begrenzt (Rate Limits).
-  - Sicherheits-Header wie CSP sind gesetzt, und Eingaben werden auf Größe geprüft.
+  - Sicherheits-Header wie CSP sind gesetzt, Formulare fremder Webseiten werden abgewiesen (CSRF-Schutz), und Eingaben werden auf Größe geprüft.
   - Nach einer Passwortänderung werden alle anderen Geräte abgemeldet.
   - Beim Abmelden werden lokale Daten (auch der KI-Key) vom Gerät gelöscht.
+- **Läuft auf Cloudflare:** Die App liegt auf Cloudflare Workers, die Daten in Cloudflare D1. Für dich und ein paar Freunde reicht der Gratis-Plan.
 
 ---
 
@@ -30,7 +31,7 @@ Forma ist eine Web-App (PWA) für iPhone und Android. Man öffnet sie im Browser
 2. [App auf deinem Computer starten](#2-app-auf-deinem-computer-starten)
 3. [Auf dem Handy testen](#3-auf-dem-handy-testen)
 4. [Tests und Build](#4-tests-und-build)
-5. [App online stellen (Hosting)](#5-app-online-stellen-hosting)
+5. [App online stellen (Cloudflare)](#5-app-online-stellen-cloudflare)
 6. [Als App auf dem Handy installieren](#6-als-app-auf-dem-handy-installieren)
 7. [KI-Modus einrichten](#7-ki-modus-einrichten)
 8. [Wie rechnet die App?](#8-wie-rechnet-die-app)
@@ -46,25 +47,36 @@ Die App besteht aus zwei Teilen:
 | Teil | Technik | Aufgabe |
 |---|---|---|
 | **Frontend** (was du im Browser siehst) | React, TypeScript, Vite, normales CSS | Oberfläche, Trainingsplan-Berechnung, Kalorien-Berechnung |
-| **Backend** (Server) | Node.js, Express, SQLite | Benutzerkonten, Daten speichern, KI-Anfragen weiterleiten |
+| **Backend** (Server) | Cloudflare Worker mit Hono, Datenbank Cloudflare D1 | Benutzerkonten, Daten speichern, KI-Anfragen weiterleiten |
 
-**SQLite** ist eine Datenbank in einer einzigen Datei (`data/forma.db`). Node.js hat SQLite bereits eingebaut, daher musst du keinen Datenbank-Server installieren.
+Ein paar Begriffe:
+
+- **Cloudflare Workers** führt kleine Server-Programme in Cloudflares Rechenzentren aus. Du musst keinen eigenen Server mieten oder warten. Cloudflare liefert auch die fertige App (Ordner `dist/`) als statische Dateien aus.
+- **Hono** ist ein kleines Web-Framework. Damit schreibt man die API-Routen (`/api/...`) übersichtlich.
+- **D1** ist Cloudflares Datenbank. Sie funktioniert wie SQLite und versteht normales SQL.
+- **Wrangler** ist Cloudflares Kommandozeilen-Programm. Es wird mit `npm install` installiert und startet die App lokal, legt die Datenbank an und veröffentlicht die App.
+- **Migrationen** (Ordner `migrations/`) sind SQL-Dateien, die die Tabellen anlegen. Wrangler merkt sich, welche schon ausgeführt wurden.
 
 ```
 Training/
 ├── index.html               Einstiegsseite der App
+├── wrangler.jsonc           Cloudflare-Einstellungen (Name, Datenbank, nächtliches Aufräumen)
+├── migrations/
+│   └── 0001_init.sql        legt alle Tabellen an
 ├── public/                  Dateien, die 1:1 ausgeliefert werden
+│   ├── _headers             Sicherheits- und Cache-Header für Cloudflare
 │   ├── exercises/           Übungsbilder: 0.webp + 1.webp (= Animation), thumb.webp
 │   ├── icons/               App-Icons
 │   ├── manifest.webmanifest macht die App installierbar
 │   ├── theme.js             setzt Hell/Dunkel, bevor die Seite erscheint
 │   └── sw.js                Service Worker: Offline-Cache (Dateiliste fügt der Build ein)
-├── server/                  Backend
+├── worker/                  Backend (läuft auf Cloudflare)
 │   ├── index.ts             alle API-Routen (/api/...)
-│   ├── db.ts                Datenbank-Tabellen
-│   ├── auth.ts              Passwörter, Login-Sitzungen, Rate Limits
-│   ├── ai.ts                Weiterleitung an KI-Anbieter
-│   └── reset-password.ts    Passwort eines Kontos zurücksetzen (für Betreiber)
+│   ├── auth.ts              Login-Sitzungen, Rate Limits, nächtliches Aufräumen
+│   ├── password.ts          Passwörter hashen und prüfen
+│   └── ai.ts                Weiterleitung an KI-Anbieter
+├── scripts/
+│   └── reset-password.ts    Passwort eines Kontos zurücksetzen (für dich als Betreiber)
 └── src/                     Frontend
     ├── main.tsx             startet React
     ├── App.tsx              welche Seite bei welcher URL
@@ -93,7 +105,7 @@ Training/
 
 ### Schritt 1: Node.js installieren
 
-Du brauchst **Node.js ab Version 22.18**, denn ab dieser Version kann Node TypeScript direkt ausführen.
+Du brauchst **Node.js ab Version 22.18**.
 
 1. Öffne https://nodejs.org
 2. Lade die **LTS**-Version herunter und installiere sie (einfach immer „Weiter“ klicken).
@@ -126,7 +138,7 @@ cd Training
 npm install
 ```
 
-Das lädt alle Pakete (React, Express …) in den Ordner `node_modules`. Das dauert beim ersten Mal ein bis zwei Minuten.
+Das lädt alle Pakete (React, Hono, Wrangler …) in den Ordner `node_modules`. Das dauert beim ersten Mal ein bis zwei Minuten.
 
 ### Schritt 4: App starten
 
@@ -136,14 +148,14 @@ npm run dev
 
 Damit starten zwei Programme gleichzeitig:
 
-- **api** (blau): der Server auf Port 3000
-- **web** (grün): die Oberfläche auf Port 5173. Sie leitet alle `/api`-Anfragen an den Server weiter.
+- **api** (blau): Wrangler startet den Worker auf Port 8787, genau so, wie er später bei Cloudflare läuft. Vorher legt er die Tabellen in einer lokalen Test-Datenbank an.
+- **web** (grün): die Oberfläche auf Port 5173. Sie leitet alle `/api`-Anfragen an den Worker weiter.
 
 Öffne jetzt im Browser: **http://localhost:5173**
 
 Änderst du Code, lädt sich die Seite automatisch neu. Zum Beenden drückst du `Strg + C` im Terminal.
 
-> Die Datenbank liegt danach in `data/forma.db`. Willst du von vorn anfangen, stopp die App und lösch den Ordner `data`.
+> Für die lokale Entwicklung brauchst du **kein** Cloudflare-Konto. Die Test-Datenbank liegt im Ordner `.wrangler/`. Willst du von vorn anfangen, stopp die App und lösch diesen Ordner.
 
 ---
 
@@ -151,93 +163,138 @@ Damit starten zwei Programme gleichzeitig:
 
 Dein Handy und dein Computer müssen im **selben WLAN** sein.
 
-1. Starte die Oberfläche so, dass sie im Netzwerk erreichbar ist. Öffne dafür zwei Terminals:
+1. Öffne zwei Terminals im Projektordner:
 
    ```bash
-   # Terminal 1
+   # Terminal 1: der Worker (API)
    npm run dev:api
    ```
 
    ```bash
-   # Terminal 2
+   # Terminal 2: die Oberfläche, im WLAN erreichbar
    npm run dev:web -- --host
    ```
+
+   Das `--host` sagt Vite, dass auch andere Geräte im WLAN zugreifen dürfen. Die zwei Striche `--` braucht npm, damit es `--host` an Vite weitergibt.
 
 2. Vite zeigt jetzt eine Zeile wie `Network: http://192.168.178.23:5173/`.
 3. Öffne genau diese Adresse im Browser deines Handys.
 
-> **Hinweis:** Die Spracheingabe per Mikrofon funktioniert auf dem Handy nur über HTTPS, also erst nach dem Hosting (Schritt 5). Die Diktierfunktion der Handy-Tastatur funktioniert immer.
+> **Hinweis:** Die Spracheingabe per Mikrofon und die Installation als App funktionieren auf dem Handy nur über HTTPS, also erst, wenn die App online ist (Schritt 5). Die Diktierfunktion der Handy-Tastatur funktioniert immer.
 
 ---
 
 ## 4. Tests und Build
 
 ```bash
-npm test            # 40 automatische Tests (Kalorien, Plan-Generator, Essens-Erkennung, KI-Antworten)
-npm run typecheck   # prüft den TypeScript-Code auf Fehler
-npm run build       # baut die fertige App in den Ordner dist/
-npm start           # startet den Server, der dist/ ausliefert: http://localhost:3000
+npm test            # 43 automatische Tests (Kalorien, Plan-Generator, Essens-Erkennung, KI-Antworten, Passwörter)
+npm run typecheck   # prüft den TypeScript-Code (Frontend und Worker) auf Fehler
+npm run build       # prüft die Typen und baut die fertige App in den Ordner dist/
+npm run preview     # baut die App und startet sie wie bei Cloudflare: http://localhost:8787
 ```
 
 ---
 
-## 5. App online stellen (Hosting)
+## 5. App online stellen (Cloudflare)
 
-Damit Freunde (oder du unterwegs) die App nutzen können, muss sie auf einem Server im Internet laufen. **Wichtig:** Der Server braucht eine **dauerhafte Festplatte** (ein „Volume“), denn dort liegt die SQLite-Datenbank. Ohne Volume sind bei jedem Neustart alle Konten weg.
+Damit du die App unterwegs und deine Freunde sie nutzen können, kommt sie auf Cloudflare. Das ist für den Anfang **kostenlos**. Der Gratis-Plan erlaubt 100.000 Anfragen pro Tag und 5 GB Datenbank.
 
-Im Projekt liegt ein fertiges `Dockerfile`. Damit läuft die App bei fast jedem Anbieter.
+Du hast zwei Wege. **Weg A** geht einmalig vom eigenen Computer. **Weg B** verbindet Cloudflare mit GitHub, dann geht jede Änderung auf `main` automatisch online. Am einfachsten machst du einmal Weg A und richtest danach Weg B ein.
 
-### Variante A: Railway (am einfachsten)
+### Vorbereitung: Cloudflare-Konto
 
-1. Erstelle ein Konto auf https://railway.app (Login mit GitHub).
-2. Klicke auf **New Project**, dann **Deploy from GitHub repo**, und wähl `souf1001/Training`.
-3. Unter **Settings** wählst du als Branch `main`. Railway erkennt das `Dockerfile` automatisch.
-4. Lege ein Volume an: Rechtsklick auf den Service, dann **Attach Volume**, Mount Path: `/data`.
-5. Unter **Variables** fügst du hinzu:
-   - `NODE_ENV` = `production`
-6. Unter **Settings**, **Networking** klickst du auf **Generate Domain**. Du bekommst eine Adresse wie `forma-production.up.railway.app`.
-7. Öffne die Adresse, fertig.
+1. Öffne https://dash.cloudflare.com/sign-up
+2. Registriere dich mit E-Mail und Passwort und bestätige die E-Mail.
+3. Eine Kreditkarte oder eine eigene Domain brauchst du **nicht**.
 
-### Variante B: Fly.io
+### Weg A: Vom Computer veröffentlichen
 
-1. Installiere das Fly-Programm (Anleitung: https://fly.io/docs/flyctl/install/).
-2. Im Projektordner:
+**Schritt 1: Wrangler mit deinem Konto verbinden**
 
-   ```bash
-   fly auth login                      # im Browser einloggen
-   fly launch --no-deploy              # App anlegen; Fragen mit Enter bestätigen
-   fly volumes create data --size 1    # 1 GB Festplatte für die Datenbank
-   ```
-
-3. Öffne die neu erstellte Datei `fly.toml` und füg am Ende hinzu:
-
-   ```toml
-   [mounts]
-     source = "data"
-     destination = "/data"
-
-   [env]
-     NODE_ENV = "production"
-   ```
-
-4. Veröffentlichen:
-
-   ```bash
-   fly deploy
-   ```
-
-### Variante C: Eigener Server mit Docker (z. B. ein kleiner VPS)
+Im Projektordner:
 
 ```bash
-docker build -t forma .
-docker run -d --name forma -p 3000:3000 -v forma-data:/data -e NODE_ENV=production --restart unless-stopped forma
+npx wrangler login
 ```
 
-Davor brauchst du einen Webserver mit HTTPS (z. B. Caddy), der auf Port 3000 weiterleitet.
+- `npx` startet ein Programm aus `node_modules`, hier Wrangler.
+- Es öffnet sich ein Browserfenster. Log dich bei Cloudflare ein und klick auf **„Allow“**.
+- Im Terminal steht dann `Successfully logged in`.
 
-> **Wichtig:** Port 3000 darf nur über den Webserver bzw. den Hosting-Proxy erreichbar sein, nicht direkt aus dem Internet. Der Server vertraut der IP-Adresse, die der Proxy mitschickt (für die Rate Limits).
+Prüfen, ob es geklappt hat:
 
-> **Warum HTTPS?** Mit `NODE_ENV=production` wird das Login-Cookie nur über HTTPS gesendet. Außerdem brauchen Installation als App und Mikrofon HTTPS. Railway und Fly.io machen das automatisch.
+```bash
+npx wrangler whoami
+```
+
+Hier sollten deine E-Mail und dein Account stehen.
+
+**Schritt 2: Veröffentlichen**
+
+```bash
+npm run deploy
+```
+
+Das macht drei Dinge nacheinander:
+
+1. `npm run build`: prüft den Code und baut die App in `dist/`.
+2. `wrangler deploy`: lädt alles zu Cloudflare hoch. **Beim ersten Mal** legt Wrangler automatisch eine Datenbank namens `forma` in deinem Konto an. Wrangler trägt danach die ID der Datenbank in `wrangler.jsonc` ein. Diese Änderung kannst du committen oder verwerfen, beides funktioniert.
+3. `wrangler d1 migrations apply forma --remote`: legt die Tabellen in der Online-Datenbank an. Wrangler fragt `Ok to proceed?`. Bestätige mit `y` und Enter.
+
+Am Ende zeigt Wrangler die Adresse deiner App, zum Beispiel:
+
+```
+https://forma.<dein-name>.workers.dev
+```
+
+Öffne sie im Browser, fertig. Die Adresse findest du auch im Cloudflare-Dashboard unter **Workers & Pages**, dann **forma**.
+
+> **Updates:** Nach jeder Änderung einfach wieder `npm run deploy`. Die Daten in der Datenbank bleiben erhalten.
+
+### Weg B: Automatisch bei jedem Push (GitHub verbinden)
+
+1. Öffne https://dash.cloudflare.com, dann links **Workers & Pages**.
+2. Hast du Weg A schon gemacht, klick auf den Worker **forma**, dann **Settings** und **Build**, dann bei **Git repository** auf **Connect**. Sonst klick auf **Create**, dann **Import a repository**.
+3. Verbinde dein GitHub-Konto und wähl das Repository `souf1001/Training`.
+4. Trag Folgendes ein:
+
+   | Feld | Wert |
+   |---|---|
+   | Project name | `forma` (muss genau so heißen wie `name` in `wrangler.jsonc`) |
+   | Production branch | `main` |
+   | Build command | `npm run build` |
+   | Deploy command | `npx wrangler deploy && npx wrangler d1 migrations apply forma --remote` |
+
+5. Klick auf **Save and Deploy**.
+
+Ab jetzt baut Cloudflare die App bei jedem Push auf `main` und stellt sie online. Unter **Deployments** siehst du, ob ein Build geklappt hat. Die Node-Version für den Build steht in der Datei `.node-version`.
+
+### Eigene Domain (optional)
+
+Hast du eine Domain bei Cloudflare (z. B. `forma-app.de`):
+
+1. Im Dashboard: **Workers & Pages**, dann **forma**, **Settings**, **Domains & Routes**.
+2. Klick auf **Add**, dann **Custom domain**.
+3. Trag die Adresse ein, z. B. `app.forma-app.de`, und bestätige. Cloudflare richtet DNS und HTTPS automatisch ein.
+
+### Gut zu wissen
+
+- **Passwort-Stärke und Gratis-Plan:** Der Gratis-Plan erlaubt pro Anfrage 10 ms Rechenzeit. Passwörter werden deshalb mit 50.000 PBKDF2-Runden gehasht (etwa 9 ms). Mit **Workers Paid** (5 $/Monat) kannst du in `wrangler.jsonc` `"PASSWORD_ITERATIONS": "100000"` eintragen, das ist sicherer. Das Maximum bei Cloudflare ist 100.000. Alte Passwörter funktionieren nach der Änderung weiter.
+- **Logs ansehen:** Mit `npx wrangler tail` siehst du live, was der Worker macht und ob Fehler auftreten. Oder im Dashboard: **forma**, dann **Observability**.
+- **Datenbank ansehen:** Im Dashboard: **Storage & Databases**, dann **D1**, dann **forma**. Oder per Terminal:
+
+  ```bash
+  npx wrangler d1 execute forma --remote --command "SELECT COUNT(*) FROM users"
+  ```
+
+- **Backup:** Mit Time Travel kann Cloudflare die Datenbank auf einen Zeitpunkt der letzten 30 Tage zurücksetzen (Gratis-Plan: 7 Tage). Eine Kopie als Datei bekommst du so:
+
+  ```bash
+  npx wrangler d1 export forma --remote --output backup.sql
+  ```
+
+- **Nächtliches Aufräumen:** Jede Nacht um 03:17 Uhr (UTC) löscht der Worker abgelaufene Logins und alte Rate-Limit-Zähler. Das steht unter `triggers` in `wrangler.jsonc`.
+- **Neue Tabellen oder Spalten:** Leg eine neue Datei an, z. B. `migrations/0002_neue_spalte.sql`. Ändere nie eine alte Migration. `npm run deploy` führt neue Migrationen automatisch aus.
 
 ---
 
@@ -339,11 +396,16 @@ Genauso geht es mit **Groq** (https://console.groq.com/keys), ebenfalls kostenlo
 
 | Problem | Lösung |
 |---|---|
-| `SyntaxError` oder `Unknown file extension ".ts"` beim Start | Deine Node-Version ist zu alt. Installiere Node ab 22.18 (`node -v` prüfen). |
-| Nach dem Login sofort wieder ausgeloggt (online) | Läuft die Seite über `http://` statt `https://`? Mit `NODE_ENV=production` braucht das Cookie HTTPS. |
-| Alle Konten nach einem Neustart weg | Beim Hosting fehlt das Volume unter `/data` (siehe Schritt 5). |
+| `npm install` oder `npm run dev` bricht mit Syntax-Fehlern ab | Deine Node-Version ist zu alt. Installiere Node ab 22.18 (`node -v` prüfen). |
+| `npx wrangler login` öffnet keinen Browser | Kopier die Adresse, die im Terminal steht, in deinen Browser. |
+| Beim Deploy: `You are not authenticated` | Erst `npx wrangler login` ausführen (Schritt 5, Weg A). |
+| Online: Fehler `no such table: users` | Die Tabellen fehlen noch. Führ `npm run db:migrate` aus. |
+| Online: Registrierung oder Login bricht mit „Error 1102“ oder „exceeded CPU“ ab | Der Gratis-Plan hat zu wenig Rechenzeit. Setz in `wrangler.jsonc` `PASSWORD_ITERATIONS` auf `"40000"` und führ `npm run deploy` aus. Oder wechsle auf Workers Paid. |
+| Weg B: Build schlägt fehl, Worker heißt anders | Der Project name im Dashboard muss `forma` sein, genau wie `name` in `wrangler.jsonc`. |
+| Weg B: Migration schlägt mit „Authentication error“ fehl | Beim Build-Token fehlt das Recht für D1. Im Dashboard unter **forma**, **Settings**, **Build**, **API token** ein Token mit „D1 Edit“ wählen. Oder die Migration einmal per `npm run db:migrate` vom Computer ausführen. |
+| Wrangler zeigt Warnungen zu Telemetrie oder Proxy | Das ist nur ein Hinweis und kein Fehler. |
 | KI: „API-Key ungültig“ | Schlüssel neu kopieren (ohne Leerzeichen) oder prüfen, ob er beim Anbieter aktiv ist. |
 | KI: „Modell nicht gefunden“ | Tippe auf „Modelle laden“ und wähl eines aus der Liste. |
-| Passwort vergessen | Auf dem Server `npm run reset-password -- person@beispiel.de` ausführen. Das Programm zeigt ein neues Passwort an und meldet alle Geräte ab. Bei Docker: `docker exec forma npm run reset-password -- person@beispiel.de` |
+| Passwort vergessen | Im Projektordner `npm run reset-password -- person@beispiel.de` ausführen (du musst mit `npx wrangler login` eingeloggt sein). Das Programm zeigt ein neues Passwort an und meldet alle Geräte ab. Für die lokale Test-Datenbank hängst du `--local` an. |
 | Nach einem Update zeigt die App noch die alte Version | Die App einmal schließen und neu öffnen. Der Service Worker lädt die neue Version im Hintergrund. |
-| Port 3000 oder 5173 schon belegt | Anderes Programm beenden oder den Port wechseln: `PORT=3001 npm run dev:api` (dann auch in `vite.config.ts` anpassen). |
+| Port 8787 oder 5173 schon belegt | Das andere Programm beenden, z. B. ein altes Terminal mit `npm run dev`. |

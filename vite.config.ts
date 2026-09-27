@@ -29,7 +29,7 @@ function serviceWorker(): Plugin {
 export default defineConfig({
   plugins: [react(), serviceWorker()],
   server: {
-    // during development the API runs on port 3000
-    proxy: { '/api': 'http://localhost:3000' },
+    // during development the Worker (API) runs on port 8787
+    proxy: { '/api': 'http://localhost:8787' },
   },
 })

@@ -1,0 +1,39 @@
+// Cloudflare configuration. Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "forma",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // the built web app (npm run build) is served as static files;
+  // only /api/* runs the Worker code, every other unknown URL gets index.html
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  // SQLite database. No ID needed: the first "wrangler deploy" creates a
+  // database called "forma" in your account (or connects the existing one).
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "forma",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // every night at 03:17 UTC: delete expired logins and old rate limit counters
+  "triggers": { "crons": ["17 3 * * *"] },
+
+  "vars": {
+    // Password hashing strength (PBKDF2 rounds, Cloudflare allows at most 100000).
+    // 50000 takes about 9 ms CPU and fits the free plan (10 ms per request).
+    // On Workers Paid set "100000". Old passwords keep working after a change.
+    "PASSWORD_ITERATIONS": "50000"
+  },
+
+  "observability": { "enabled": true }
+}

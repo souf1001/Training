@@ -1,0 +1,19 @@
+# Headers for the static files on Cloudflare (the API sets its own in worker/index.ts).
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https: http://localhost:* http://127.0.0.1:*; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: no-referrer
+  Permissions-Policy: microphone=(self), camera=(), geolocation=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+
+# file names in assets/ contain a hash, so they never change
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/exercises/*
+  Cache-Control: public, max-age=604800
+
+# must be checked on every visit, so updates arrive
+/sw.js
+  Cache-Control: no-cache
