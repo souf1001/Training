@@ -1,0 +1,17 @@
+{
+  "name": "Forma – Training & Ernährung",
+  "short_name": "Forma",
+  "description": "Dein persönlicher Trainingsplan mit Übungsanleitungen, Cardio und Kalorien-Tracking.",
+  "lang": "de",
+  "start_url": "/heute",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f2f2f4",
+  "theme_color": "#f2f2f4",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
